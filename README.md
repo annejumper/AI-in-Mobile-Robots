@@ -32,14 +32,16 @@ pip install -r requirements.txt
 ```bash
 python main.py             # connects to the LEGO Double Motor over Bluetooth and drives it
 python main.py --dry-run   # runs the webcam + gesture pipeline only, no hardware required
-python main.py --card-serial 0049   # skip the prompt, connect to a specific hub
+python main.py --card-serial 0049   # connect to a different hub than the hard-coded default
 ```
 
-When connecting to real hardware, you'll be asked for your hub's
-**Connection Card serial number** (printed on the physical card that ships
-with each LEGO CS/AI hub). This matters in a classroom: with many hubs
-powered on at once, connecting without a card filter can grab someone
-else's motor instead of yours.
+`main.py` hard-codes `CARD_SERIAL` to this car's **Connection Card serial
+number** (printed on the physical card that ships with each LEGO CS/AI
+hub) so it always pairs with the same hub. This matters in a classroom:
+with many hubs powered on at once, connecting without a card filter can
+grab someone else's motor instead of yours. If you ever swap to a
+different hub, update `CARD_SERIAL` at the top of `main.py` (or pass
+`--card-serial` to override it for one run).
 
 Press `q` in the video window to quit. On first run, the MediaPipe pose
 model (~6MB) is downloaded automatically into `poserace/models/`.

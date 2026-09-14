@@ -17,6 +17,11 @@ import time
 
 import cv2
 
+# Serial number of this car's LEGO Connection Card. Hard-coded since this
+# project always pairs with the same hub; override with --card-serial if
+# you ever need to connect to a different one.
+CARD_SERIAL = "1096"
+
 from poserace.car import Car
 from poserace.gestures import GestureController, WheelSpeeds
 from poserace.vision import PoseCamera
@@ -60,21 +65,15 @@ def main():
     parser.add_argument("--camera", type=int, default=0, help="Webcam index")
     parser.add_argument(
         "--card-serial",
-        default=None,
-        help="Connection Card serial number for your hub (e.g. 0049). "
-             "If omitted, you'll be prompted for it.",
+        default=CARD_SERIAL,
+        help=f"Connection Card serial number for your hub (default: {CARD_SERIAL}).",
     )
     args = parser.parse_args()
 
     car = None
     if not args.dry_run:
-        card_serial = args.card_serial
-        if not card_serial:
-            card_serial = input(
-                "Enter your LEGO Connection Card serial number (e.g. 0049): "
-            ).strip()
         car = Car()
-        if not car.connect(card_serial=card_serial or None):
+        if not car.connect(card_serial=args.card_serial):
             print("Exiting. Run with --dry-run to test the gesture pipeline without hardware.")
             return
 
