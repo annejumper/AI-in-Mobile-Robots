@@ -58,12 +58,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Skip hardware, just show the vision pipeline")
     parser.add_argument("--camera", type=int, default=0, help="Webcam index")
+    parser.add_argument(
+        "--card-serial",
+        default=None,
+        help="Connection Card serial number for your hub (e.g. 0049). "
+             "If omitted, you'll be prompted for it.",
+    )
     args = parser.parse_args()
 
     car = None
     if not args.dry_run:
+        card_serial = args.card_serial
+        if not card_serial:
+            card_serial = input(
+                "Enter your LEGO Connection Card serial number (e.g. 0049): "
+            ).strip()
         car = Car()
-        if not car.connect():
+        if not car.connect(card_serial=card_serial or None):
             print("Exiting. Run with --dry-run to test the gesture pipeline without hardware.")
             return
 

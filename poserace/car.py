@@ -10,9 +10,17 @@ class Car:
         self._motor = le.DoubleMotor()
         self._connected = False
 
-    def connect(self, timeout: int = 10) -> bool:
-        print("Scanning for LEGO Double Motor over Bluetooth...")
-        result = self._motor.connect()
+    def connect(self, card_serial: str | None = None) -> bool:
+        """Connect to a Double Motor, optionally restricted to the hub
+        paired with a specific Connection Card serial number. Filtering by
+        card is important in a classroom: with many hubs powered on at
+        once, an unfiltered scan can connect to someone else's car.
+        """
+        if card_serial:
+            print(f"Scanning for LEGO Double Motor with Connection Card {card_serial!r}...")
+        else:
+            print("Scanning for LEGO Double Motor over Bluetooth (no card filter)...")
+        result = self._motor.connect(card_serial=card_serial)
         self._connected = result is not None or self._motor.done()
         if self._connected:
             print("Connected to LEGO Double Motor.")
