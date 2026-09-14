@@ -19,11 +19,13 @@ PoseLandmark = vision.PoseLandmark
 DEAD_ZONE = 0.2
 
 # Wrist this many shoulder-widths above/below the shoulder maps to full
-# speed. Shoulder width is a smaller physical distance than the old
-# shoulder-to-hip reference, so this needs to be well above 1.0 or a small
-# arm movement blows straight past 100%. Raise this further if it's still
-# too twitchy; lower it for a snappier, less gradual ramp.
-FULL_SPEED_RANGE = 2.5
+# speed. Separate forward/backward ranges because the two directions have
+# different usable ranges of motion: an arm can reach well above the head
+# for forward, but lowering an arm past the waist tends to drop the wrist
+# below the camera's view (or below VISIBILITY_THRESHOLD) before it can
+# travel as far -- so full reverse needs a shorter, easier-to-reach range.
+FULL_SPEED_RANGE_FORWARD = 2.5
+FULL_SPEED_RANGE_BACKWARD = 1.2
 
 MAX_SPEED_PERCENT = 100
 
@@ -64,7 +66,8 @@ def _arm_speed(shoulder, wrist, other_shoulder) -> float:
 
     raise_amount = (shoulder.y - wrist.y) / shoulder_width
 
-    magnitude = (abs(raise_amount) - DEAD_ZONE) / (FULL_SPEED_RANGE - DEAD_ZONE)
+    full_speed_range = FULL_SPEED_RANGE_FORWARD if raise_amount > 0 else FULL_SPEED_RANGE_BACKWARD
+    magnitude = (abs(raise_amount) - DEAD_ZONE) / (full_speed_range - DEAD_ZONE)
     magnitude = max(0.0, min(1.0, magnitude))
 
     sign = 1.0 if raise_amount > 0 else -1.0
