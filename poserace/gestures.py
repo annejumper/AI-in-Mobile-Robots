@@ -16,10 +16,14 @@ PoseLandmark = vision.PoseLandmark
 
 # Wrist at shoulder height stays inside this band and produces zero speed,
 # so a resting arm doesn't cause drift.
-DEAD_ZONE = 0.15
+DEAD_ZONE = 0.2
 
-# Wrist this many torso-heights above/below the shoulder maps to full speed.
-FULL_SPEED_RANGE = 1.0
+# Wrist this many shoulder-widths above/below the shoulder maps to full
+# speed. Shoulder width is a smaller physical distance than the old
+# shoulder-to-hip reference, so this needs to be well above 1.0 or a small
+# arm movement blows straight past 100%. Raise this further if it's still
+# too twitchy; lower it for a snappier, less gradual ramp.
+FULL_SPEED_RANGE = 2.5
 
 MAX_SPEED_PERCENT = 100
 
