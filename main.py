@@ -32,7 +32,7 @@ CARD_SERIAL = "1096"
 # forth on top of the car. Defaults to the same card as the drive hub;
 # override with --obstacle-card-serial if it's actually a separate
 # physical hub with its own card.
-OBSTACLE_CARD_SERIAL = CARD_SERIAL
+OBSTACLE_CARD_SERIAL = "6065"
 
 SEND_INTERVAL_SECONDS = 1 / 15  # cap BLE commands to ~15 Hz
 
