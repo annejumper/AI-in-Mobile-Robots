@@ -16,8 +16,12 @@ speed, continuously from -100% (full reverse) to +100% (full forward):
 - Raise one arm and lower the other to spin in place -- useful for backing
   out of a tight spot.
 
-The mapping is normalized by torso length (shoulder-to-hip distance), so it
-adapts to how far you're standing from the camera without recalibration.
+The mapping is normalized by shoulder width, so it adapts to how far
+you're standing from the camera without recalibration (shoulder width was
+chosen over shoulder-to-hip torso length because it stays in frame even
+when a webcam only frames head-to-waist). Reaching full speed takes a
+bigger raise going forward than going backward, since a lowered arm tends
+to leave the camera's view sooner than a raised one.
 
 ## Setup
 
@@ -95,18 +99,28 @@ BLE acknowledgment.
 
 ## How did you train it, and what are its limitations?
 
-We didn't train a model -- MediaPipe's pose landmark model is pretrained by
-Google. Our code is a hand-written, rule-based mapping (arm height ->
-speed, no learning) applied to MediaPipe's landmark output. Limitations:
+We didn't train a model -- this project uses two pretrained MediaPipe
+models (Pose Landmarker for arm tracking, Gesture Recognizer for the
+obstacle motor's hand gestures), both from Google, downloaded automatically
+as `.task` files. Our own code (`poserace/gestures.py`) is a hand-written,
+rule-based mapping (arm height -> speed, no learning) applied to the pose
+model's landmark output; the obstacle motor just reacts to the gesture
+model's fixed, canned gesture categories (`Pointing_Up`, `Victory`).
+Limitations:
 
-- Requires decent, even lighting and the user's shoulders/hips/wrists
-  visible in frame; occlusion or being partially off-screen breaks tracking.
-- Tracks one person at a time; a crowded frame can confuse detection.
+- Requires decent, even lighting and the user's shoulders/wrists visible
+  in frame; occlusion or being partially off-screen breaks tracking.
+- Tracks one person/one hand at a time; a crowded frame can confuse
+  detection.
+- The Gesture Recognizer only knows its fixed vocabulary of canned
+  gestures -- there's no way to add a custom gesture without training a
+  new classifier, which we didn't do.
 - Raw landmark coordinates are jittery frame-to-frame, so we smooth wheel
   speed with an exponential moving average, which trades a little
   responsiveness for stability.
-- The dead zone and full-speed range are fixed constants tuned by eye, not
-  per-user calibrated -- they may feel slightly off for very different body
-  proportions or camera angles.
-- End-to-end latency (camera capture -> pose inference -> BLE write ->
+- The dead zone, full-speed range, and gesture confidence threshold are
+  fixed constants tuned by hand-testing, not per-user calibrated -- they
+  may feel slightly off for very different body proportions or camera
+  angles.
+- End-to-end latency (camera capture -> model inference -> BLE write ->
   motor response) adds a small but real control delay.
