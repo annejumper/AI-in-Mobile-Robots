@@ -1,22 +1,21 @@
-"""A LEGO Education Single Motor that sweeps an obstacle back and forth
-on top of the car, independent of the drive wheels."""
+"""A LEGO Education Single Motor that swings an obstacle on top of the
+car, triggered by hand gestures rather than running continuously."""
 
 import legoeducation as le
 
-# Degrees the motor turns each leg of the sweep before reversing direction.
-SWEEP_DEGREES = 180
+# Degrees the motor turns for each triggered move.
+TRIGGER_DEGREES = 90
 
-# Speed as a percentage (0-100) for the sweeping motion.
-SWEEP_SPEED = 40
+# Speed as a percentage (0-100) for the triggered move.
+TRIGGER_SPEED = 40
 
 
 class ObstacleMotor:
-    """Connects to a Single Motor and continuously sweeps it back and forth."""
+    """Connects to a Single Motor and rotates it on command."""
 
     def __init__(self):
         self._motor = le.SingleMotor()
         self._connected = False
-        self._direction = le.MOTOR_MOVE_DIRECTION_CLOCKWISE
 
     def connect(self, card_serial: str | None = None) -> bool:
         if card_serial:
@@ -31,29 +30,21 @@ class ObstacleMotor:
             print("Could not connect to a LEGO Single Motor.")
         return self._connected
 
-    def start(self):
-        """Kick off the first sweep. Call update() regularly afterward to
-        keep it reversing direction once each sweep completes."""
+    def trigger_cw(self):
+        """Rotate TRIGGER_DEGREES clockwise. Non-blocking."""
         if not self._connected:
             return
         self._motor.motor_run_for_degrees(
-            SWEEP_DEGREES, direction=self._direction, speed=SWEEP_SPEED, blocking=False
+            TRIGGER_DEGREES, direction=le.MOTOR_MOVE_DIRECTION_CLOCKWISE, speed=TRIGGER_SPEED, blocking=False
         )
 
-    def update(self):
-        """Reverse direction once the current sweep leg finishes. Call this
-        once per main loop iteration; it's a no-op most of the time."""
+    def trigger_ccw(self):
+        """Rotate TRIGGER_DEGREES counterclockwise. Non-blocking."""
         if not self._connected:
             return
-        if self._motor.done():
-            self._direction = (
-                le.MOTOR_MOVE_DIRECTION_COUNTERCLOCKWISE
-                if self._direction == le.MOTOR_MOVE_DIRECTION_CLOCKWISE
-                else le.MOTOR_MOVE_DIRECTION_CLOCKWISE
-            )
-            self._motor.motor_run_for_degrees(
-                SWEEP_DEGREES, direction=self._direction, speed=SWEEP_SPEED, blocking=False
-            )
+        self._motor.motor_run_for_degrees(
+            TRIGGER_DEGREES, direction=le.MOTOR_MOVE_DIRECTION_COUNTERCLOCKWISE, speed=TRIGGER_SPEED, blocking=False
+        )
 
     def stop(self):
         if not self._connected:

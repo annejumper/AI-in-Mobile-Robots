@@ -6,6 +6,12 @@ height sets the right wheel's speed (both -100% to 100%, reverse included).
 Push one arm up and the other down to spin in place -- handy for backing
 out of tight spots.
 
+A hand gesture also controls the obstacle motor on top of the car: hold up
+one finger ("1" / MediaPipe's "Pointing_Up") to swing it 90 degrees
+clockwise, or two fingers in a peace sign ("2" / MediaPipe's "Victory") to
+swing it 90 degrees counterclockwise. Each gesture triggers one move when
+it's first shown; holding it doesn't repeat the move.
+
 Usage:
     python main.py                 # connect to real hardware over BLE
     python main.py --dry-run       # run the vision + gesture pipeline only,
@@ -37,7 +43,7 @@ OBSTACLE_CARD_SERIAL = "6065"
 SEND_INTERVAL_SECONDS = 1 / 15  # cap BLE commands to ~15 Hz
 
 
-def draw_hud(frame, landmarks, speeds):
+def draw_hud(frame, landmarks, speeds, gesture_name):
     h, w = frame.shape[:2]
 
     if landmarks is not None:
@@ -65,6 +71,9 @@ def draw_hud(frame, landmarks, speeds):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
     cv2.putText(frame, "q: quit", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    if gesture_name:
+        cv2.putText(frame, f"gesture: {gesture_name}", (10, h - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
 
 def main():
@@ -98,19 +107,18 @@ def main():
 
         if not args.no_obstacle:
             obstacle = ObstacleMotor()
-            if obstacle.connect(card_serial=args.obstacle_card_serial):
-                obstacle.start()
-            else:
+            if not obstacle.connect(card_serial=args.obstacle_card_serial):
                 print("Continuing without the obstacle motor.")
                 obstacle = None
 
     gesture_controller = GestureController()
     last_send_time = 0.0
+    last_hand_gesture = None
 
     try:
-        with PoseCamera(camera_index=args.camera, mirrored=True) as cam:
+        with PoseCamera(camera_index=args.camera, mirrored=True, enable_gestures=not args.no_obstacle) as cam:
             while True:
-                frame, landmarks = cam.read()
+                frame, landmarks, hand_gesture = cam.read()
                 if frame is None:
                     print("Camera read failed.")
                     break
@@ -126,10 +134,14 @@ def main():
                     car.drive_tank(speeds.left, speeds.right)
                     last_send_time = now
 
-                if obstacle is not None:
-                    obstacle.update()
+                if obstacle is not None and hand_gesture != last_hand_gesture:
+                    if hand_gesture == "Pointing_Up":
+                        obstacle.trigger_cw()
+                    elif hand_gesture == "Victory":
+                        obstacle.trigger_ccw()
+                last_hand_gesture = hand_gesture
 
-                draw_hud(frame, landmarks, speeds)
+                draw_hud(frame, landmarks, speeds, hand_gesture)
                 cv2.imshow("PoseRace", frame)
 
                 if cv2.waitKey(1) & 0xFF == ord("q"):

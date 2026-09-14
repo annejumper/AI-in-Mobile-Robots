@@ -1,4 +1,5 @@
-"""Webcam capture + MediaPipe Pose landmark detection."""
+"""Webcam capture + MediaPipe Pose landmark detection + hand gesture
+recognition."""
 
 import os
 import time
@@ -14,17 +15,26 @@ MODEL_URL = (
 )
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "pose_landmarker_lite.task")
 
+GESTURE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
+    "gesture_recognizer/float16/latest/gesture_recognizer.task"
+)
+GESTURE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "gesture_recognizer.task")
 
-def ensure_model_downloaded():
-    if os.path.exists(MODEL_PATH):
+# Minimum confidence to trust the top predicted gesture category.
+GESTURE_CONFIDENCE_THRESHOLD = 0.6
+
+
+def _ensure_downloaded(path: str, url: str):
+    if os.path.exists(path):
         return
-    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    print(f"Downloading pose landmarker model to {MODEL_PATH} ...")
-    urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    print(f"Downloading model to {path} ...")
+    urllib.request.urlretrieve(url, path)
 
 
 def create_landmarker() -> vision.PoseLandmarker:
-    ensure_model_downloaded()
+    _ensure_downloaded(MODEL_PATH, MODEL_URL)
     # macOS builds of mediapipe>=1.0 crash trying to open a Metal GPU
     # service for the pose detector's NMS calculator; the CPU delegate flag
     # alone doesn't prevent it. This project pins mediapipe==0.10.35 (see
@@ -42,18 +52,34 @@ def create_landmarker() -> vision.PoseLandmarker:
     return vision.PoseLandmarker.create_from_options(options)
 
 
+def create_gesture_recognizer() -> vision.GestureRecognizer:
+    _ensure_downloaded(GESTURE_MODEL_PATH, GESTURE_MODEL_URL)
+    options = vision.GestureRecognizerOptions(
+        base_options=mp.tasks.BaseOptions(
+            model_asset_path=GESTURE_MODEL_PATH,
+            delegate=mp.tasks.BaseOptions.Delegate.CPU,
+        ),
+        running_mode=vision.RunningMode.VIDEO,
+        num_hands=1,
+    )
+    return vision.GestureRecognizer.create_from_options(options)
+
+
 class PoseCamera:
-    """Opens a webcam and yields (frame, landmarks) pairs.
+    """Opens a webcam and yields (frame, pose_landmarks, gesture_name)
+    triples.
 
     Frames are mirrored (flipped horizontally) before detection so the
     on-screen view feels natural, like looking in a mirror.
     """
 
-    def __init__(self, camera_index: int = 0, mirrored: bool = True):
+    def __init__(self, camera_index: int = 0, mirrored: bool = True, enable_gestures: bool = True):
         self.camera_index = camera_index
         self.mirrored = mirrored
+        self.enable_gestures = enable_gestures
         self._cap = None
         self._landmarker = None
+        self._gesture_recognizer = None
         self._start_time = None
 
     def __enter__(self):
@@ -61,6 +87,8 @@ class PoseCamera:
         if not self._cap.isOpened():
             raise RuntimeError(f"Could not open webcam at index {self.camera_index}")
         self._landmarker = create_landmarker()
+        if self.enable_gestures:
+            self._gesture_recognizer = create_gesture_recognizer()
         self._start_time = time.time()
         return self
 
@@ -69,12 +97,15 @@ class PoseCamera:
             self._cap.release()
         if self._landmarker is not None:
             self._landmarker.close()
+        if self._gesture_recognizer is not None:
+            self._gesture_recognizer.close()
 
     def read(self):
-        """Read one frame. Returns (frame_bgr, landmarks_or_None)."""
+        """Read one frame. Returns (frame_bgr, pose_landmarks_or_None,
+        gesture_name_or_None)."""
         ok, frame = self._cap.read()
         if not ok:
-            return None, None
+            return None, None, None
 
         if self.mirrored:
             frame = cv2.flip(frame, 1)
@@ -82,7 +113,16 @@ class PoseCamera:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         timestamp_ms = int((time.time() - self._start_time) * 1000)
-        result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
 
-        landmarks = result.pose_landmarks[0] if result.pose_landmarks else None
-        return frame, landmarks
+        pose_result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
+        landmarks = pose_result.pose_landmarks[0] if pose_result.pose_landmarks else None
+
+        gesture_name = None
+        if self._gesture_recognizer is not None:
+            gesture_result = self._gesture_recognizer.recognize_for_video(mp_image, timestamp_ms)
+            if gesture_result.gestures:
+                top = gesture_result.gestures[0][0]
+                if top.score >= GESTURE_CONFIDENCE_THRESHOLD:
+                    gesture_name = top.category_name
+
+        return frame, landmarks, gesture_name
