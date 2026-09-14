@@ -24,6 +24,12 @@ MAX_SPEED_PERCENT = 100
 # Lower = smoother but laggier; higher = snappier but noisier.
 SMOOTHING_ALPHA = 0.4
 
+# MediaPipe still reports a guessed x/y for landmarks it can't actually see
+# (e.g. a wrist out of frame or behind the body), just with a low confidence
+# score. Below this threshold we treat the landmark as untracked rather than
+# trust its (often wrong) position.
+VISIBILITY_THRESHOLD = 0.5
+
 
 @dataclass
 class WheelSpeeds:
@@ -31,17 +37,25 @@ class WheelSpeeds:
     right: float
 
 
-def _arm_speed(shoulder_y: float, wrist_y: float, hip_y: float) -> float:
+def _is_tracked(landmark) -> bool:
+    return landmark.visibility >= VISIBILITY_THRESHOLD and landmark.presence >= VISIBILITY_THRESHOLD
+
+
+def _arm_speed(shoulder, wrist, hip) -> float:
     """Map one arm's wrist height to a speed percentage in [-100, 100].
 
     Image y-coordinates increase downward, so a raised wrist has a smaller
-    y than the shoulder.
+    y than the shoulder. Returns 0 if any of the three landmarks aren't
+    confidently tracked (e.g. the wrist is out of frame).
     """
-    torso_height = hip_y - shoulder_y
+    if not (_is_tracked(shoulder) and _is_tracked(wrist) and _is_tracked(hip)):
+        return 0.0
+
+    torso_height = hip.y - shoulder.y
     if torso_height <= 1e-6:
         return 0.0
 
-    raise_amount = (shoulder_y - wrist_y) / torso_height
+    raise_amount = (shoulder.y - wrist.y) / torso_height
 
     magnitude = (abs(raise_amount) - DEAD_ZONE) / (FULL_SPEED_RANGE - DEAD_ZONE)
     magnitude = max(0.0, min(1.0, magnitude))
@@ -78,8 +92,8 @@ class GestureController:
         left_shoulder, left_wrist, left_hip = (landmarks[i] for i in left_landmarks)
         right_shoulder, right_wrist, right_hip = (landmarks[i] for i in right_landmarks)
 
-        target_left = _arm_speed(left_shoulder.y, left_wrist.y, left_hip.y)
-        target_right = _arm_speed(right_shoulder.y, right_wrist.y, right_hip.y)
+        target_left = _arm_speed(left_shoulder, left_wrist, left_hip)
+        target_right = _arm_speed(right_shoulder, right_wrist, right_hip)
 
         self._smoothed_left += SMOOTHING_ALPHA * (target_left - self._smoothed_left)
         self._smoothed_right += SMOOTHING_ALPHA * (target_right - self._smoothed_right)
