@@ -1,5 +1,24 @@
 # PoseRace
 
+Control a LEGO Education race car's two drive wheels independently by
+raising and lowering your arms in front of a webcam.
+
+## Gesture scheme
+
+Each wrist's height relative to your own shoulder sets that side's wheel
+speed, continuously from -100% (full reverse) to +100% (full forward):
+
+- Arm at shoulder height -> that wheel is stopped (small dead zone so a
+  resting arm doesn't drift).
+- Raise an arm -> that wheel drives forward, faster the higher you raise it.
+- Lower an arm below shoulder height -> that wheel reverses.
+- Left wrist controls the left wheel, right wrist controls the right wheel.
+- Raise one arm and lower the other to spin in place -- useful for backing
+  out of a tight spot.
+
+The mapping is normalized by torso length (shoulder-to-hip distance), so it
+adapts to how far you're standing from the camera without recalibration.
+
 ## Setup
 
 ```bash
@@ -7,3 +26,49 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Run
+
+```bash
+python main.py             # connects to the LEGO Double Motor over Bluetooth and drives it
+python main.py --dry-run   # runs the webcam + gesture pipeline only, no hardware required
+```
+
+Press `q` in the video window to quit. On first run, the MediaPipe pose
+model (~6MB) is downloaded automatically into `poserace/models/`.
+
+## How is Python talking to the LEGO hardware?
+
+Over **Bluetooth Low Energy** via the `legoeducation` package, which wraps
+`bleak` (cross-platform BLE) and speaks LEGO's binary RPC protocol to the
+Double Motor hub. We use `DoubleMotor.movement_move_tank(speed_left,
+speed_right)` to set both wheel speeds in a single BLE command per frame.
+
+## Is it synchronous or asynchronous?
+
+Both. Internally, `legoeducation` runs everything through a single
+`asyncio` event loop (`background_worker.TransportManager`) that owns the
+BLE connection -- all actual I/O is async. The public API exposed to us,
+though, is synchronous by default: each call takes a `blocking` argument,
+and a synchronous-looking call is bridged onto the async loop under the
+hood. We call `movement_move_tank(..., blocking=False)` so sending a new
+speed command every video frame never stalls the webcam loop waiting for a
+BLE acknowledgment.
+
+## How did you train it, and what are its limitations?
+
+We didn't train a model -- MediaPipe's pose landmark model is pretrained by
+Google. Our code is a hand-written, rule-based mapping (arm height ->
+speed, no learning) applied to MediaPipe's landmark output. Limitations:
+
+- Requires decent, even lighting and the user's shoulders/hips/wrists
+  visible in frame; occlusion or being partially off-screen breaks tracking.
+- Tracks one person at a time; a crowded frame can confuse detection.
+- Raw landmark coordinates are jittery frame-to-frame, so we smooth wheel
+  speed with an exponential moving average, which trades a little
+  responsiveness for stability.
+- The dead zone and full-speed range are fixed constants tuned by eye, not
+  per-user calibrated -- they may feel slightly off for very different body
+  proportions or camera angles.
+- End-to-end latency (camera capture -> pose inference -> BLE write ->
+  motor response) adds a small but real control delay.
