@@ -17,14 +17,22 @@ import time
 
 import cv2
 
-# Serial number of this car's LEGO Connection Card. Hard-coded since this
-# project always pairs with the same hub; override with --card-serial if
-# you ever need to connect to a different one.
-CARD_SERIAL = "1096"
-
 from poserace.car import Car
 from poserace.gestures import GestureController, WheelSpeeds
+from poserace.obstacle import ObstacleMotor
 from poserace.vision import PoseCamera
+
+# Serial number of this car's LEGO Connection Card (the Double Motor hub
+# driving the wheels). Hard-coded since this project always pairs with the
+# same hub; override with --card-serial if you ever need to connect to a
+# different one.
+CARD_SERIAL = "1096"
+
+# Serial number of the Single Motor hub that sweeps the obstacle back and
+# forth on top of the car. Defaults to the same card as the drive hub;
+# override with --obstacle-card-serial if it's actually a separate
+# physical hub with its own card.
+OBSTACLE_CARD_SERIAL = CARD_SERIAL
 
 SEND_INTERVAL_SECONDS = 1 / 15  # cap BLE commands to ~15 Hz
 
@@ -68,14 +76,33 @@ def main():
         default=CARD_SERIAL,
         help=f"Connection Card serial number for your hub (default: {CARD_SERIAL}).",
     )
+    parser.add_argument(
+        "--obstacle-card-serial",
+        default=OBSTACLE_CARD_SERIAL,
+        help=f"Connection Card serial number for the obstacle's Single Motor hub (default: {OBSTACLE_CARD_SERIAL}).",
+    )
+    parser.add_argument(
+        "--no-obstacle",
+        action="store_true",
+        help="Skip connecting to the obstacle's Single Motor hub entirely.",
+    )
     args = parser.parse_args()
 
     car = None
+    obstacle = None
     if not args.dry_run:
         car = Car()
         if not car.connect(card_serial=args.card_serial):
             print("Exiting. Run with --dry-run to test the gesture pipeline without hardware.")
             return
+
+        if not args.no_obstacle:
+            obstacle = ObstacleMotor()
+            if obstacle.connect(card_serial=args.obstacle_card_serial):
+                obstacle.start()
+            else:
+                print("Continuing without the obstacle motor.")
+                obstacle = None
 
     gesture_controller = GestureController()
     last_send_time = 0.0
@@ -99,6 +126,9 @@ def main():
                     car.drive_tank(speeds.left, speeds.right)
                     last_send_time = now
 
+                if obstacle is not None:
+                    obstacle.update()
+
                 draw_hud(frame, landmarks, speeds)
                 cv2.imshow("PoseRace", frame)
 
@@ -108,6 +138,9 @@ def main():
         if car is not None:
             car.stop()
             car.disconnect()
+        if obstacle is not None:
+            obstacle.stop()
+            obstacle.disconnect()
         cv2.destroyAllWindows()
 
 

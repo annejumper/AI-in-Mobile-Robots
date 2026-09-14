@@ -43,6 +43,25 @@ grab someone else's motor instead of yours. If you ever swap to a
 different hub, update `CARD_SERIAL` at the top of `main.py` (or pass
 `--card-serial` to override it for one run).
 
+## Obstacle motor
+
+A second, independent LEGO Single Motor continuously sweeps an obstacle
+back and forth on top of the car (`poserace/obstacle.py`), unrelated to
+the arm-gesture drive controls. `SingleMotor` and `DoubleMotor` are
+separate physical hub products, each with their own Connection Card, so
+the obstacle hub needs its own card serial:
+
+```bash
+python main.py --obstacle-card-serial 0123   # if it's a different physical hub
+python main.py --no-obstacle                 # skip it entirely
+```
+
+By default `OBSTACLE_CARD_SERIAL` in `main.py` reuses the same card as
+the drive hub — update it if the obstacle motor turns out to be a
+separate physical unit with its own card. If the obstacle hub fails to
+connect, the program keeps running with just the drive wheels rather
+than exiting.
+
 Press `q` in the video window to quit. On first run, the MediaPipe pose
 model (~6MB) is downloaded automatically into `poserace/models/`.
 
