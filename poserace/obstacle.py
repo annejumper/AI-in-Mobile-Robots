@@ -7,7 +7,7 @@ import legoeducation as le
 TRIGGER_DEGREES = 90
 
 # Speed as a percentage (0-100) for the triggered move.
-TRIGGER_SPEED = 40
+TRIGGER_SPEED = 80
 
 
 class ObstacleMotor:
