@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+
+# Sample/output images
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+*.tiff
