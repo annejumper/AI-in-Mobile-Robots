@@ -271,13 +271,14 @@ def calibrate_car_sign(cap, detector, tag_id, rotation, car_motor, fallback_inve
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    # --- ORIGINAL (Mac teammate) phone-camera source -- commented out, not deleted ---
-    # source_group = parser.add_mutually_exclusive_group(required=True)
-    # source_group.add_argument("--url", help="Phone IP-camera stream URL")
-    # source_group.add_argument("--camera-index", type=int, help="Local camera device index (e.g. Continuity Camera)")
-
-    # --- Windows computer camera (current) ---
-    parser.add_argument("--camera-index", type=int, default=0, help="Windows webcam device index (default 0). Use view_stream.py --list to find the right index if you have more than one camera.")
+    # Camera source: either a phone IP-camera stream (--url, e.g. Android's
+    # "IP Webcam" app or macOS Continuity Camera reached via device index),
+    # or a local webcam device index (default 0, e.g. this computer's
+    # built-in/USB camera). Mutually exclusive -- pick one per run depending
+    # on which physical state you're testing.
+    source_group = parser.add_mutually_exclusive_group()
+    source_group.add_argument("--url", help="Phone IP-camera stream URL")
+    source_group.add_argument("--camera-index", type=int, default=0, help="Local camera device index (default 0). Use view_stream.py --list to find the right index if you have more than one camera.")
 
     parser.add_argument("--rotate", type=int, default=0, choices=sorted(ROTATIONS), help="Rotate the feed clockwise by this many degrees, to match a vertically-mounted camera (default 0)")
     parser.add_argument("--dict", default=DEFAULT_DICT, help="AprilTag dictionary name")
@@ -312,15 +313,17 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Vision only; do not connect to or drive either motor")
     args = parser.parse_args()
 
-    # --- ORIGINAL (Mac teammate) source selection -- commented out, not deleted ---
-    # source = args.url if args.url is not None else args.camera_index
-    # cap = cv2.VideoCapture(source)
-
-    # --- Windows computer camera (current) ---
-    # cv2.CAP_DSHOW opens the local webcam via DirectShow, which starts up
-    # faster and more reliably on Windows than OpenCV's default backend.
-    source = args.camera_index
-    cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+    source = args.url if args.url is not None else args.camera_index
+    if isinstance(source, str):
+        cap = cv2.VideoCapture(source)
+    elif sys.platform.startswith("win"):
+        # cv2.CAP_DSHOW opens the local webcam via DirectShow, which starts
+        # up faster and more reliably on Windows than OpenCV's default
+        # backend. Only applies to a local device index, and only on
+        # Windows -- DirectShow isn't available elsewhere.
+        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         sys.exit(f"Could not open video source {source}")
 
