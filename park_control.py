@@ -284,7 +284,7 @@ def main():
     parser.add_argument("--dict", default=DEFAULT_DICT, help="AprilTag dictionary name")
     parser.add_argument("--tag-id", type=int, default=None, help="Only track this tag ID (default: first tag found)")
 
-    parser.add_argument("--pan-kp", type=float, default=100.0, help="Pan PID proportional gain: pan speed percent per unit of tag skew (default 100.0 -- a fixed constant, independent of camera/frame size)")
+    parser.add_argument("--pan-kp", type=float, default=60.0, help="Pan PID proportional gain: pan speed percent per unit of tag skew (default 60.0 -- a fixed constant, independent of camera/frame size)")
     parser.add_argument("--pan-ki", type=float, default=0.1, help="Pan PID integral gain -- accumulates a small sustained skew that the proportional term alone settles for instead of driving to 0 (default 0.1)")
     parser.add_argument("--pan-kd", type=float, default=10.0, help="Pan PID derivative gain -- damps oscillation/overshoot around square (default 10.0)")
     parser.add_argument("--pan-max-speed", type=int, default=40, help="Hard cap on pan motor (tag-angle) speed percent, regardless of what the PID computes (default 40)")
@@ -295,7 +295,7 @@ def main():
     parser.add_argument("--pan-start-position-deg", type=float, default=90.0, help="Once connected, rotate the pan motor to this absolute position before calibration/control starts, so the tag always starts in the same orientation every run regardless of where it was left after the last run (default 90.0)")
     parser.add_argument("--pan-invert", action="store_true", help="Flip pan direction if it turns the tag away from square instead of toward it")
 
-    parser.add_argument("--car-kp", type=float, default=0.08, help="Car PID proportional gain: car speed percent per pixel of centering error (default 0.08 -- a fixed constant, independent of camera/frame size)")
+    parser.add_argument("--car-kp", type=float, default=0.05, help="Car PID proportional gain: car speed percent per pixel of centering error (default 0.05 -- a fixed constant, independent of camera/frame size)")
     parser.add_argument("--car-ki", type=float, default=0.1, help="Car PID integral gain -- closes the small residual centering error a P-only response settles for. Uses clamping anti-windup (won't build up during the initial fast approach); lower toward 0 if you see a speed-up hump near the end (default 0.1)")
     parser.add_argument("--car-kd", type=float, default=0.02, help="Car PID derivative gain -- damps oscillation/overshoot around center (default 0.02)")
     parser.add_argument("--car-max-speed", type=int, default=25, help="Hard cap on car drive speed percent, regardless of what the PID computes (default 25)")
@@ -304,8 +304,8 @@ def main():
     parser.add_argument("--car-invert", action="store_true", help="Flip car drive direction if it drives away from center instead of toward it")
 
     parser.add_argument("--command-hz", type=float, default=30, help="Max rate to send motor commands (default 30 Hz). Raised from an earlier 10 Hz default -- at 10 Hz, commands lagged well behind the camera's own ~30fps, so each motor command was a stale, chunky update instead of a steady stream of small corrections, which shows up as jitter/stutter at low speed. Lower this only if you see BLE command backlog or disconnects from sending too fast.")
-    parser.add_argument("--tag-lost-timeout", type=float, default=1.0, help="Seconds to keep driving at the last commanded speed after losing sight of the tag (a momentary dropout shouldn't cause a stop/restart jitter cycle) before stopping the car and starting a search spin (default 1.0)")
-    parser.add_argument("--search-speed", type=float, default=20.0, help="Pan motor speed for the first 360-degree search spin once the tag has been lost for --tag-lost-timeout seconds. Spins in whatever direction pan was last correcting toward. Each subsequent spin (up to %d total) is slower: speed = search-speed / spin-number. The car never moves during a search; if the tag isn't found after all spins, the program stops and exits (default 20.0)" % SEARCH_SPIN_COUNT)
+    parser.add_argument("--tag-lost-timeout", type=float, default=0.25, help="Seconds to keep driving at the last commanded speed after losing sight of the tag (a momentary dropout shouldn't cause a stop/restart jitter cycle) before stopping the car and starting a search spin (default 0.25)")
+    parser.add_argument("--search-speed", type=float, default=6.0, help="Pan motor speed for the first 360-degree search spin once the tag has been lost for --tag-lost-timeout seconds. Spins in whatever direction pan was last correcting toward. Each subsequent spin (up to %d total) is slower: speed = search-speed / spin-number. The car never moves during a search; if the tag isn't found after all spins, the program stops and exits (default 6.0)" % SEARCH_SPIN_COUNT)
     parser.add_argument("--pan-card-color", default=None, help="Single Motor connection card color name (e.g. AZURE)")
     parser.add_argument("--pan-card-serial", default="6065", help="Single Motor connection card serial number (default 6065)")
     parser.add_argument("--car-card-color", default=None, help="Double Motor connection card color name (e.g. AZURE)")
@@ -520,6 +520,12 @@ def main():
                         status = "tag lost, stopped (search needs real hardware, not --dry-run)"
                     else:
                         mode = "searching"
+                        # drive() is never called while mode == "searching"
+                        # (search sends its own direct pan_motor commands
+                        # below), so the car needs an explicit one-time stop
+                        # here -- otherwise it just keeps coasting at
+                        # whatever speed/direction it was last sent.
+                        car_motor.movement_stop()
                         search_spin_index = 0
                         spin_speed = args.search_speed / (search_spin_index + 1)
                         pan_motor.motor_reset_relative_position(position=0)
