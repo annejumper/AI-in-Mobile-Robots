@@ -38,9 +38,10 @@ than the last; if the tag still isn't found, the program stops and exits.
 IMPORTANT: before running (without --dry-run), physically aim the tag
 roughly at the camera -- the car's direction calibration briefly nudges
 the Double Motor to figure out which way is which, and needs the tag in
-view to do that. The pan motor is not auto-calibrated: it homes to
---pan-start-position-deg and holds there until the camera loop starts
-commanding it; use --pan-invert manually if it turns the wrong way.
+view to do that. The pan motor starts wherever it happens to be (no
+homing) and is not auto-calibrated either: it just holds still until the
+camera loop starts commanding it; use --pan-invert manually if it turns
+the wrong way.
 
 ---
 ORIGINAL setup (teammate's Mac, phone mounted on the robot, stationary
@@ -50,17 +51,20 @@ motor) to track a stationary tag, and the car drove to bring the pan
 motor's accumulated angle back to zero. That is the opposite of the
 current setup, where the camera is fixed and the tag is on the robot.
 
-Camera feed into OpenCV, one of two ways:
-  * Windows webcam (this computer) -- local device index, opened with
-    the DirectShow backend for fast/reliable startup on Windows.
-  * [ORIGINAL] IP-camera app over Wi-Fi (e.g. "IP Webcam" on Android) or
-    macOS Continuity Camera (iPhone) -- see the commented-out --url /
-    device-index handling below.
+At startup, you'll be prompted to type 0 (webcam state) or 1 (phone
+state), which picks a sensible default camera source for that setup:
+  * webcam state (0): this computer's local webcam, opened via
+    DirectShow on Windows for fast/reliable startup (device index 0).
+  * phone state (1): a phone acting as the camera, either an IP-camera
+    app over Wi-Fi (--url) or a local device index (e.g. macOS
+    Continuity Camera, index 1).
+Pass --url or --camera-index explicitly to override the prompt's default
+for either state.
 
 Usage:
     python park_control.py --dry-run   # vision only, no motors
     python park_control.py             # full run, both motors
-    python park_control.py --camera-index 1   # if the built-in webcam isn't device 0
+    python park_control.py --camera-index 2   # override the state prompt's default camera index
 """
 
 import argparse
@@ -234,38 +238,56 @@ def read_tag_metrics(cap, detector, tag_id, rotation, attempts=30):
     return None
 
 
-def calibrate_car_sign(cap, detector, tag_id, rotation, car_motor, fallback_invert, test_speed=25, test_duration=0.4):
-    """Drive the car straight (both wheels together) briefly and measure
-    which way the tag's centroid actually moves in frame, instead of
-    guessing --car-invert by hand."""
-    print("Calibrating car (centering) direction (keep the tag in view)...")
-    before = read_tag_metrics(cap, detector, tag_id, rotation)
-    if before is None:
+def calibrate_car_direction(cap, detector, tag_id, rotation, car_motor, fallback_invert, test_speed=25, test_duration=0.4):
+    """Drive the car forward, then backward, measuring the tag's pixel-x
+    shift from each -- run every time the tag is freshly (re)acquired
+    (not just once at cold startup), so it works regardless of which way
+    the robot happens to be facing when it's placed down or re-finds the
+    tag after a search. Forward and backward give two independent
+    estimates of the same signed gain (driving backward should undo
+    driving forward), averaged for a more robust measurement than a
+    single nudge -- and the net movement is approximately zero, so this
+    doesn't drift the robot away from where it was found."""
+
+    def measure():
+        m = read_tag_metrics(cap, detector, tag_id, rotation, attempts=5)
+        return None if m is None else m[0]
+
+    print("Calibrating car direction (keep the tag in view)...")
+    m0 = measure()
+    if m0 is None:
         print("Could not see the tag to calibrate; falling back to --car-invert as given.")
         return fallback_invert
-    cx0, _ = before
 
     car_motor.movement_move_tank(test_speed, test_speed, blocking=False)
     time.sleep(test_duration)
     car_motor.movement_stop()
     time.sleep(0.2)
+    m1 = measure()
 
-    after = read_tag_metrics(cap, detector, tag_id, rotation)
-    if after is None:
+    car_motor.movement_move_tank(-test_speed, -test_speed, blocking=False)
+    time.sleep(test_duration)
+    car_motor.movement_stop()
+    time.sleep(0.2)
+    m2 = measure()
+
+    if m1 is None or m2 is None:
         print("Lost the tag during calibration; falling back to --car-invert as given.")
         return fallback_invert
-    cx1, _ = after
 
-    delta = cx1 - cx0
-    print(f"Calibration: driving forward moved the tag by {delta:+.1f}px in frame.")
-    if abs(delta) < 3:
+    forward_delta = m1 - m0
+    backward_delta = m2 - m1
+    if abs(forward_delta) < 3 and abs(backward_delta) < 3:
         print("Movement too small to calibrate reliably; falling back to --car-invert as given.")
         return fallback_invert
 
+    gain = ((forward_delta / (test_speed * test_duration)) + (-backward_delta / (test_speed * test_duration))) / 2
+    print(f"Calibration: forward {forward_delta:+.1f}px, backward {backward_delta:+.1f}px -> gain {gain:+.4f} px/(speed*sec)")
+
     # Positive pixel error (tag right of center) should drive the car in
     # whatever direction makes cx decrease. If driving forward increased
-    # cx, "forward" is the wrong response to positive error, so invert.
-    return delta > 0
+    # cx, forward is the wrong response to positive error, so invert.
+    return gain > 0
 
 
 def main():
@@ -273,12 +295,13 @@ def main():
 
     # Camera source: either a phone IP-camera stream (--url, e.g. Android's
     # "IP Webcam" app or macOS Continuity Camera reached via device index),
-    # or a local webcam device index (default 0, e.g. this computer's
-    # built-in/USB camera). Mutually exclusive -- pick one per run depending
-    # on which physical state you're testing.
+    # or a local webcam device index. Mutually exclusive. Left unset
+    # (None), the interactive state prompt at startup picks a sensible
+    # default (0 for webcam state, 1 for phone state) -- pass one of these
+    # explicitly only to override that default.
     source_group = parser.add_mutually_exclusive_group()
     source_group.add_argument("--url", help="Phone IP-camera stream URL")
-    source_group.add_argument("--camera-index", type=int, default=0, help="Local camera device index (default 0). Use view_stream.py --list to find the right index if you have more than one camera.")
+    source_group.add_argument("--camera-index", type=int, default=None, help="Local camera device index, overriding the state prompt's default. Use view_stream.py --list to find the right index if you have more than one camera.")
 
     parser.add_argument("--rotate", type=int, default=0, choices=sorted(ROTATIONS), help="Rotate the feed clockwise by this many degrees, to match a vertically-mounted camera (default 0)")
     parser.add_argument("--dict", default=DEFAULT_DICT, help="AprilTag dictionary name")
@@ -292,7 +315,6 @@ def main():
     parser.add_argument("--car-hold-skew", type=float, default=0.03, help="Don't drive the car until the tag's skew is within this much of square -- pan corrects the angle first, every time, before the car is allowed to move, since a steep angle plus car motion at the same time is when the tag is most likely to drop out of detection (default 0.03)")
     parser.add_argument("--car-hold-settle-time", type=float, default=0.3, help="How long skew must stay continuously within --car-hold-skew before the car is released to drive (default 0.3s) -- without this, a single noisy frame that happens to dip below the threshold (e.g. the very first frame the tag is (re)detected) would release the car before pan has actually had a chance to correct anything")
     parser.add_argument("--pan-smoothing", type=float, default=0.3, help="Low-pass filter alpha (0-1] applied to the raw skew reading before the pan PID sees it -- lower means more smoothing/less jitter but slower to react (default 0.3)")
-    parser.add_argument("--pan-start-position-deg", type=float, default=90.0, help="Once connected, rotate the pan motor to this absolute position before calibration/control starts, so the tag always starts in the same orientation every run regardless of where it was left after the last run (default 90.0)")
     parser.add_argument("--pan-invert", action="store_true", help="Flip pan direction if it turns the tag away from square instead of toward it")
 
     parser.add_argument("--car-kp", type=float, default=0.05, help="Car PID proportional gain: car speed percent per pixel of centering error (default 0.05 -- a fixed constant, independent of camera/frame size)")
@@ -313,7 +335,16 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Vision only; do not connect to or drive either motor")
     args = parser.parse_args()
 
-    source = args.url if args.url is not None else args.camera_index
+    print("Select camera:")
+    print("  0 = computer webcam (AprilTag mounted on robot)")
+    print("  1 = phone camera (mounted on robot, tracking a stationary AprilTag)")
+    choice = input("Enter 0 or 1: ").strip()
+    while choice not in ("0", "1"):
+        choice = input("Please enter 0 or 1: ").strip()
+    state = "webcam" if choice == "0" else "phone"
+
+    camera_index = args.camera_index if args.camera_index is not None else (1 if state == "phone" else 0)
+    source = args.url if args.url is not None else camera_index
     if isinstance(source, str):
         cap = cv2.VideoCapture(source)
     elif sys.platform.startswith("win"):
@@ -339,21 +370,20 @@ def main():
         pan_motor = le.SingleMotor()
         connect_motor(pan_motor, "Single Motor (tag angle)", resolve_card_color(args.pan_card_color), args.pan_card_serial)
         pan_motor.motor_set_end_state(le.MOTOR_END_STATE_BRAKE)
-
-        # Home the tag mount to a fixed absolute position, regardless of
-        # wherever it was physically left after the last run, so the tag
-        # always starts in the same orientation every run.
-        pan_motor.motor_run_to_absolute_position(args.pan_start_position_deg, speed=args.pan_max_speed, blocking=True)
-        print(f"Pan motor homed to absolute position {args.pan_start_position_deg:.0f} deg.")
-        # No auto-calibration nudge here -- pan should do nothing but hold
-        # at that position until the camera-driven PID loop starts
-        # commanding it. Set --pan-invert manually if it turns the wrong way.
+        # No homing and no auto-calibration nudge here -- pan starts
+        # wherever it happens to be and just holds still until the
+        # camera-driven PID loop starts commanding it (searching/squaring
+        # both work from any starting angle). Set --pan-invert manually if
+        # it turns the wrong way.
 
         car_motor = le.DoubleMotor()
         connect_motor(car_motor, "Double Motor (drive)", resolve_card_color(args.car_card_color), args.car_card_serial)
         car_motor.movement_set_end_state(le.MOTOR_END_STATE_BRAKE)
-        car_invert = calibrate_car_sign(cap, detector, args.tag_id, rotation, car_motor, args.car_invert)
-        print(f"Car invert = {car_invert}")
+        # Car direction is NOT calibrated here -- it's calibrated fresh
+        # every time the tag is (re)acquired, in the main loop below, so
+        # it works regardless of which way the robot is facing when
+        # placed down, rather than only whichever way it happened to
+        # face at cold startup.
 
     def drive(pan_speed, car_speed):
         if pan_motor is not None:
@@ -399,6 +429,7 @@ def main():
     skew = 0.0
     last_seen_time = None
     squared_since = None  # when skew most recently entered the car-hold band
+    car_direction_calibrated_this_cycle = False  # reset every time the tag is freshly (re)acquired
 
     # Search-spin state, entered once the tag's been lost longer than
     # --tag-lost-timeout. "normal" is everything else (tracking/coasting).
@@ -440,6 +471,7 @@ def main():
                     car_filter.reset()
                     pan_filter.reset()
                     squared_since = None
+                    car_direction_calibrated_this_cycle = False
                     status = "tag reacquired -- squaring up"
                 else:
                     spin_speed = args.search_speed / (search_spin_index + 1)
@@ -459,6 +491,23 @@ def main():
 
             elif tag is not None:
                 last_seen_time = time.monotonic()
+
+                # Car direction is calibrated fresh every time the tag is
+                # (re)acquired -- once per acquisition, not every frame --
+                # so it works regardless of which way the robot happens to
+                # be facing right now, rather than only whichever way it
+                # faced at cold startup.
+                if not car_direction_calibrated_this_cycle:
+                    car_direction_calibrated_this_cycle = True
+                    if car_motor is not None:
+                        car_invert = calibrate_car_direction(cap, detector, args.tag_id, rotation, car_motor, args.car_invert)
+                        print(f"Car invert = {car_invert}")
+                        car_controller = PIDController(
+                            kp=args.car_kp, ki=args.car_ki, kd=args.car_kd,
+                            deadzone=args.car_deadzone, max_out=args.car_max_speed,
+                            invert=car_invert,
+                        )
+
                 cx, cy = tag.mean(axis=0)
                 skew = tag_skew(tag)
                 cv2.polylines(frame, [tag.astype(int)], True, (0, 0, 255), 3)
