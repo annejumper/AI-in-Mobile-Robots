@@ -15,7 +15,6 @@ Press 'q' to quit.
 
 import argparse
 import sys
-
 import cv2
 
 ROTATIONS = {
