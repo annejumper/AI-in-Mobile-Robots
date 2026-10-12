@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Tennis</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <div id="title" class="panel">
+      <div class="brand">VIRTUAL <b>TENNIS</b></div>
+      <div class="row"><span class="chip"></span><span id="surfaceName">Hard court</span></div>
+      <div id="blurb" class="sub"></div>
+      <div id="levelLine" class="sub"></div>
+    </div>
+
+    <div id="score" class="panel">
+      <div class="scoreRow"><span class="lbl">RALLY</span><span id="streak" class="num">0</span></div>
+      <div class="scoreRow rec"><span class="lbl">RECORD</span><span id="record" class="num">0</span></div>
+      <div id="topic" class="tiny"><span id="mqttDot" class="dot"></span><span id="topicText"></span></div>
+    </div>
+
+    <div id="imu" class="panel">
+      <div id="imuTitle" class="lbl">IMU &middot; DOUBLE MOTOR 6065</div>
+      <div class="meter"><span>Swing (pitch)</span>
+        <div class="bar"><div id="swingFill"></div><div id="swingTick" class="tick"></div></div></div>
+      <div class="meter"><span>Twist (yaw)</span>
+        <div class="bar"><div id="deadBand"></div><div id="twistFill"></div><div class="mid"></div></div></div>
+      <div class="twistLabels"><span></span><span>slice</span><span>flat</span><span>topspin</span></div>
+      <div id="lastSwing" class="tiny">swing the racket to test</div>
+    </div>
+
+    <div id="shot" class="panel hidden">
+      <div id="shotHead"><span class="lbl">LAST SHOT</span><span id="perfect" class="badge hidden">PERFECT</span></div>
+      <div id="shotMain"></div>
+      <div class="stats">
+        <div>Speed<b id="sSpeed"></b></div>
+        <div>Power<b id="sPower"></b></div>
+        <div>Spin<b id="sSpin"></b></div>
+        <div>Contact<b id="sHeight"></b></div>
+      </div>
+    </div>
+
+    <div id="cam" class="panel">
+      <img id="camImg" alt="webcam with pose tracking">
+      <div class="camLabel"><span class="rec">&#9679;</span> CAMERA &middot; POSE</div>
+      <div id="noTrack" class="hidden">Step into view</div>
+    </div>
+
+    <div id="banner" class="hidden"><div id="bTitle"></div><div id="bDetail"></div></div>
+    <div id="countdown" class="hidden"></div>
+
+    <div id="menu" class="panel hidden">
+      <h1>Show AprilTag <span>0</span> to start</h1>
+      <div class="progress"><div id="startFill"></div></div>
+      <div class="tagGrid">
+        <div class="tag" data-level="1"><span class="id">1</span>Club<i>13 m/s</i></div>
+        <div class="tag" data-level="2"><span class="id">2</span>Varsity<i>18 m/s</i></div>
+        <div class="tag" data-level="3"><span class="id">3</span>Pro<i>25 m/s</i></div>
+        <div class="tag" data-surface="clay"><span class="id">4</span>Clay<i>high, slow bounce</i></div>
+        <div class="tag" data-surface="grass"><span class="id">5</span>Grass<i>low, fast skid</i></div>
+        <div class="tag" data-surface="hard"><span class="id">6</span>Hard<i>true bounce</i></div>
+      </div>
+      <div class="how">
+        Hold the hub like a racket. <b>Swing</b> = pitch. <b>Twist</b> (yaw) one way = topspin, other way = slice.<br>
+        Put your racket in the <b>ring</b> when the ball arrives.
+        <div id="simKeys" class="hidden">Keyboard sim: <b>SPACE</b> flat &middot; <b>T</b> topspin &middot; <b>B</b> slice &middot; <b>F</b> full power</div>
+        <div>Keys: <b>S</b> start &middot; <b>1/2/3</b> level &middot; <b>C/G/H</b> court &middot; <b>Q</b> quit</div>
+      </div>
+    </div>
+
+    <div id="offline">Waiting for tennis.py&hellip;</div>
+    <div id="soundHint">click anywhere to turn on sound</div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
