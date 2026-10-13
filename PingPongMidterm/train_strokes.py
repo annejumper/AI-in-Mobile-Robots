@@ -7,8 +7,9 @@ each flat / topspin / slice (6 classes).
 For each stroke type you do a set of swings with the hub. Each swing becomes
 a feature vector (pitch rate, yaw twist, the third gyro axis, accel,
 duration), and a k-nearest-neighbors model is saved to strokes_model.json.
-tennis.py loads it automatically and uses it for the stroke and spin TYPE
-(the yaw twist still sets the spin AMOUNT).
+tennis.py loads it automatically and uses it for the spin TYPE, with a
+separate flat/topspin/slice model per stroke (the camera decides forehand vs
+backhand, and the yaw twist still sets the spin AMOUNT).
 """
 
 import argparse
@@ -122,6 +123,10 @@ def main():
     print(f"\nSaved {MODEL} from {len(data['y'])} swings. "
           f"Leave-one-out accuracy: {knn.leave_one_out_accuracy() * 100:.0f}%\n")
     print_confusion(knn)
+    for stroke in ("forehand", "backhand"):
+        m = knn.spin_model(stroke)
+        if m:
+            print(f"{stroke} spin, with the side from the camera: {m.leave_one_out_accuracy() * 100:.0f}%")
     print("\ntennis.py will use it automatically. Delete the file to go back to twist-only spin.")
 
 

@@ -1,4 +1,4 @@
-"""Make the printable AprilTags (36h11) for Virtual Tennis.
+"""Make the printable AprilTags (36h11) for T-anne-is.
 
     .venv/bin/python generate_tags.py      -> tags/tag_<id>.png and tags/sheet.png
 """

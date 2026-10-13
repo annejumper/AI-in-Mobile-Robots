@@ -1,5 +1,5 @@
 """
-Tennis physics for Virtual Tennis: court geometry, court surfaces, player
+Tennis physics for T-anne-is: court geometry, court surfaces, player
 levels and ball flight (gravity + Magnus effect from spin + surface bounce).
 
 World coordinates (meters), all measured from the player:
@@ -61,9 +61,9 @@ class Level:
 
 
 LEVELS = {
-    1: Level("Club",    13.0, 0.45, 3.0, -1.5, 6.5, 9.0, 0.3, True),
-    2: Level("Varsity", 18.0, 0.35, 2.4, -1.2, 6.0, 8.5, 0.6, False),
-    3: Level("Pro",     25.0, 0.27, 1.8, -0.9, 6.0, 9.0, 1.0, False),
+    1: Level("Club",     9.0, 0.60, 5.5, -2.5, 6.5, 9.0, 0.3, True),
+    2: Level("Varsity", 12.0, 0.50, 4.6, -2.1, 6.0, 8.5, 0.5, True),
+    3: Level("Pro",     16.0, 0.40, 3.8, -1.7, 6.0, 9.0, 0.8, True),
 }
 
 
@@ -135,27 +135,37 @@ REACH_LO, REACH_HI = 0.30, 1.75   # contact heights a person can actually hit
 
 
 def launch_incoming(level, surface, rng, speed_mult=1.0, z0=OPPONENT_Z, x_target=0.6):
-    """The opponent's shot: aimed to bounce in front of the player and arrive
-    at sideways position x_target, at a height the player can reach.
+    """The opponent's shot: aimed to bounce once in front of the player and
+    arrive at sideways position x_target, at a height the player can reach.
+    Slow balls fly in a high arc and kick up high, so instead of guessing, it
+    tries bounce spots across the player's half and keeps the ones that come
+    in at a hittable height (preferring the level's usual bounce depth).
     Returns (ball, predicted (x, y))."""
-    for _ in range(15):
-        ball, (cx, cy) = _aim_incoming(level, surface, rng, speed_mult, z0, x_target)
-        if REACH_LO <= cy <= REACH_HI:
-            break
-    return ball, (cx, cy)
-
-
-def _aim_incoming(level, surface, rng, speed_mult, z0, x_target):
     v = level.speed * speed_mult
     spin = rng.uniform(-0.4, 1.0) * level.spin_max
-    zb = rng.uniform(level.bounce_lo, level.bounce_hi)
     h0 = 1.2
     g_eff = max(G + MAGNUS * spin * v / 25.0, MIN_G_EFF)
-    t_b = (z0 - zb) / v
-    vy = (0.5 * g_eff * t_b ** 2 - h0) / t_b
-    if z0 > NET_Z:  # make sure it clears the net
-        t_n = (z0 - NET_Z) / v
-        vy = max(vy, (NET_HEIGHT + NET_MARGIN - h0 + 0.5 * g_eff * t_n ** 2) / t_n)
+
+    def vy_for(zb):
+        t_b = (z0 - zb) / v
+        vy = (0.5 * g_eff * t_b ** 2 - h0) / t_b
+        if z0 > NET_Z:  # make sure it clears the net
+            t_n = (z0 - NET_Z) / v
+            vy = max(vy, (NET_HEIGHT + NET_MARGIN - h0 + 0.5 * g_eff * t_n ** 2) / t_n)
+        return vy
+
+    options = []   # (bounce depth, vy, contact height)
+    for zb in np.arange(2.0, min(NET_Z, z0) - 0.5, 0.5):
+        vy = vy_for(zb)
+        _, cy, _, bounces = predict_contact(Ball((0.0, h0, z0), (0.0, vy, -v), spin), surface)
+        if bounces == 1:
+            options.append((zb, vy, cy))
+    reachable = [o for o in options if REACH_LO <= o[2] <= REACH_HI]
+    usual = [o for o in reachable if level.bounce_lo <= o[0] <= level.bounce_hi]
+    if usual or reachable:
+        _, vy, _ = rng.choice(usual or reachable)
+    else:  # nothing perfect: take the one closest to reachable
+        _, vy, _ = min(options, key=lambda o: abs(o[2] - np.clip(o[2], REACH_LO, REACH_HI)))
 
     x0 = rng.uniform(-2.5, 2.5)
     vx = (x_target - x0) / (z0 / v)

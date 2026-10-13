@@ -1,4 +1,4 @@
-// Virtual Tennis - Three.js view (Anne Jumper, ME193)
+// T-anne-is - Three.js view (Anne Jumper, ME193)
 //
 // This page only DRAWS. tennis.py does all the sensing (pose, IMU, AprilTags),
 // physics and decisions, and streams the game state here over a websocket.
@@ -325,7 +325,7 @@ function setSurface(key) {
 function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
 
 function updateHUD(s) {
-  setText($('surfaceName'), `${s.surfaceName} court`);
+  setText($('surfaceName'), `${VENUES[s.surface].title} \u00b7 ${s.surfaceName.toLowerCase()} court`);
   setText($('blurb'), s.blurb);
   setText($('levelLine'), `Level ${s.level}: ${s.levelName} · ${s.speed} m/s`);
   setText($('streak'), s.streak);
@@ -389,10 +389,63 @@ function updateHUD(s) {
   show($('noTrack'), !s.tracking);
 }
 
+// --- Chris commentary: a reaction face + one-liner for each shot -----------------------------
+const CHRIS_LINES = {
+  happy:   ['Lovely shot!', 'That\'s in. Keep it going!', 'Clean contact.', 'Textbook.',
+            'You\'re a natural. Have you considered frisbee?',
+            'Great hands! Frisbee\'s going to love you.',
+            'With aim like that, you\'d be a frisbee star.',
+            'Solid! Now try it with a disc.'],
+  shocked: ['WHAT a shot!', 'Did you see that?!', 'Unbelievable!', 'Somebody call Wimbledon!',
+            'Talent like that is wasted on tennis. Ultimate needs you!',
+            'Wow! Somebody sign this player up for frisbee!',
+            'That\'s frisbee-level talent right there!',
+            'Wow, you may graduate on time after all!'],
+  sad:     ['Oof. So close.', 'Ahh, not quite.', 'You\'ll get the next one.', 'Painful to watch.',
+            'At least a frisbee floats long enough to catch.',
+            'A frisbee would\'ve waited for you.',
+            'That ball was tiny anyway. A disc is much easier to see.',
+            'Don\'t worry, frisbee doesn\'t need a racket.',
+            'Tough one. Frisbee is always there for you.'],
+  mad:     ['Come ON!', 'Are you serious?!', 'That was a sitter!', 'Unacceptable.',
+            'This is why I play a superior sport. FRISBEE.',
+            'That never happens with a frisbee!',
+            'Into the net? A frisbee would\'ve flown right over!',
+            'Rackets are overrated. Just throw a frisbee!'],
+};
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const chrisFaces = Object.keys(CHRIS_LINES).map(m => Object.assign(new Image(), { src: `img/chris-${m}.png` }));  // preload
+
+function chrisSays(mood, line) {
+  const panel = $('chris'), img = $('chrisImg');
+  panel.classList.remove('happy', 'shocked', 'sad', 'mad');
+  panel.classList.add(mood);
+  img.src = `img/chris-${mood}.png`;
+  setText($('chrisQuote'), line || pick(CHRIS_LINES[mood]));
+  img.classList.remove('react'); void img.offsetWidth; img.classList.add('react');
+}
+
+function chrisReact(e) {
+  switch (e.type) {
+    case 'hit':
+      if (e.perfect) chrisSays('shocked', 'PERFECT timing!');
+      else if (e.power >= 0.85) chrisSays('shocked');
+      break;
+    case 'in':
+      if (S && S.lastShot && !S.lastShot.perfect && S.lastShot.power < 0.85) chrisSays('happy');
+      break;
+    case 'record': chrisSays('shocked', 'A new record!'); break;
+    case 'miss':   // unforced errors (net / long) make him mad; whiffs make him sad
+      chrisSays(/net|long/i.test(e.title || '') ? 'mad' : 'sad');
+      break;
+  }
+}
+
 // --- events from the game (sounds + effects) -----------------------------------------------
 let shake = 0;
 function handleFx(fx) {
   for (const e of fx) {
+    chrisReact(e);
     const p = e.pos ? V(e.pos[0], e.pos[1], e.pos[2]) : null;
     switch (e.type) {
       case 'bounce': {

@@ -1,10 +1,10 @@
-# Virtual Tennis: ME193 Midterm
+# T-anne-is: ME193 Midterm
 
 **Anne Jumper**
 
 > [VIDEO / GIF OF GAMEPLAY HERE]
 
-I play tennis, so I turned virtual ping-pong into **virtual tennis**. The racket is my LEGO
+I play tennis, so I turned virtual ping-pong into **T-anne-is**, a virtual tennis game. The racket is my LEGO
 Education Double Motor (card 6065). I rally against a virtual opponent on **clay, grass or hard
 court**. Each surface changes how the ball bounces, which changes *where my racket has to be*.
 How I swing decides the ball's **spin**, and spin changes whether the ball lands in.
@@ -12,11 +12,11 @@ My record rally (most continuous hits) is posted live to `ME193/Rogers/AnneJumpe
 
 ## How it uses everything from class
 
-| Requirement | How Virtual Tennis uses it |
+| Requirement | How T-anne-is uses it |
 |---|---|
 | **Pose** (paddle in the right location) | MediaPipe Pose tracks my racket hand (wrist, extended a little past the wrist toward where the hub sits). The ball's height and side are mapped onto *my own body*: hip height is 0.95 m and my torso is the ruler. To hit, my hand has to be within the level's hit radius of the ball. |
 | **IMU** (am I swinging) | The double motor's gyro **pitch** rate. A burst above threshold is a swing, and the peak rate is the **power**. The **yaw** twist during the swing is the **spin**. |
-| **AprilTags** (level and start) | Tag 0 = START. Tags 1–3 = Club / Varsity / Pro (13 / 18 / 25 m/s balls, smaller hit zone, tighter timing). Tags 4–6 = Clay / Grass / Hard. |
+| **AprilTags** (level and start) | Tag 0 = START. Tags 1–3 = Club / Varsity / Pro (9 / 12 / 16 m/s balls, smaller hit zone, tighter timing). Tags 4–6 = Clay / Grass / Hard. |
 | **MQTT score** | The record number of continuous hits, as a float (e.g. `7.0`), published to `ME193/Rogers/AnneJumper` every time a ball lands in. |
 | **Something new** | Haptics, court surfaces and spin physics (below). |
 
@@ -66,15 +66,18 @@ The game is a state machine (MENU → COUNTDOWN → INCOMING → OUTGOING → �
 decision is **"was that swing a hit?"**, and it is made from the swings the IMU reports:
 
 1. **Timing (IMU).** Find the instant of peak pitch rate in the swing, then look up where the ball
-   was at *that* instant.
+   was at *that* instant. The camera, pose model and browser add about 60 ms of delay, so I judge
+   the swing against where the ball *appeared* on screen (60 ms earlier), not where the
+   simulation had it.
    - The ball was still more than *z_early* meters away: "Too early!" This is a free practice
      swing, so you can still hit the ball.
    - The ball was already past you: "Too late!" The rally ends.
    - Inside the window, every swing becomes a **candidate**, and the **strongest one wins**. A
      windup or reset is slower than the real swing, so it never counts as the shot. The game waits
      about 0.08 s after a swing in case a stronger one follows, then judges.
-2. **Position (pose).** At that same instant, how far was my racket hand from the ball, in meters
-   (using my torso as the scale)? If it's farther than the level's hit radius (45 / 35 / 27 cm),
+2. **Position (pose).** At that same instant, how far was my racket hand from the ring (where the
+   ball crosses my hitting plane), in meters
+   (using my torso as the scale)? If it's farther than the level's hit radius (60 / 50 / 40 cm),
    it's a miss, and the game reports how far off I was.
 3. **Hit.** Power comes from peak pitch rate. Spin comes from the signed yaw twist: positive is
    topspin, negative is slice, and inside the dead zone it's flat. If the KNN is trained, it picks
@@ -114,9 +117,11 @@ maximum, and gets about 3% faster per hit as the rally builds (capped at +35%).
 - **AprilTag detection, classical computer vision.** The image is thresholded to find dark
   four-sided shapes, and the grid of black/white bits inside each one is read. The bits are matched
   to the 36h11 codebook, which can correct a few wrong bits, giving the tag's ID.
-- **k-Nearest Neighbors (my trained stroke model, 6 classes).** Every training swing is stored as a feature
-  vector (pitch rate, yaw twist, the third gyro axis, acceleration, duration). A new swing gets the
-  majority label of the 5 closest training swings after standardizing the features.
+- **k-Nearest Neighbors (my trained stroke model).** I recorded 6 classes of training swings (forehand and
+  backhand, each flat / topspin / slice). The camera decides forehand vs backhand: it sees which side of my
+  body the ball was on. The KNN then decides the spin, using only that stroke's swings and the three gyro
+  peaks (pitch rate, yaw twist, the third axis). A new swing gets the majority label of the 5 closest
+  training swings after standardizing the features.
 - **Rule-based policy + physics simulation (the game "AI").** A state machine with hand-designed
   rules (above) decides hits, misses and the opponent's shots. A projectile simulation with gravity
   and Magnus force decides where the ball goes.

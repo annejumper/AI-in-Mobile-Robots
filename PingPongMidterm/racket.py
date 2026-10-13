@@ -64,7 +64,7 @@ class SwingEvent:
     peak_twist: float      # signed yaw rate with the largest magnitude during the swing
     other_peak: float      # signed peak rate on the remaining gyro axis
     peak_accel: float      # largest accelerometer magnitude
-    label: str = None      # e.g. "forehand_topspin" if the KNN decided
+    label: str = None      # e.g. "forehand_topspin" once the game has judged a hit with the KNN
 
     @property
     def power(self):
@@ -171,8 +171,6 @@ class Racket:
                 if not any(math.isnan(v) for v in gyro):
                     ev = self.detector.feed(time.monotonic(), gyro, accel)
                     if ev:
-                        if self.knn:
-                            ev.label = self.knn.predict(ev.features())
                         self.events.put(ev)
             time.sleep(0.002)
 

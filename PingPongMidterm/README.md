@@ -1,4 +1,6 @@
-# Virtual Tennis: ME193 Midterm (Anne Jumper)
+# T-anne-is: ME193 Midterm (Anne Jumper)
+
+*A virtual tennis game.*
 
 Rally against a virtual opponent using a **LEGO Education Double Motor as your racket**
 (Connection Card **6065**). Choose clay, grass or hard court. Each surface bounces
@@ -31,7 +33,7 @@ Options: `--view cv` (old OpenCV window instead of the 3D view), `--no-browser`,
 | AprilTag | Meaning | Key |
 |---|---|---|
 | 0 | **START** (hold it up for about 0.2 s) | S |
-| 1 / 2 / 3 | Level: Club 13 m/s, Varsity 18 m/s, Pro 25 m/s | 1 / 2 / 3 |
+| 1 / 2 / 3 | Level: Club 9 m/s, Varsity 12 m/s, Pro 16 m/s | 1 / 2 / 3 |
 | 4 / 5 / 6 | Court: Clay, Grass, Hard | C / G / H |
 
 **How to play:** stand far enough back that the camera sees you from head to hips. Hold the

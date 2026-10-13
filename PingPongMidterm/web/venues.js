@@ -1,4 +1,4 @@
-// Virtual Tennis - the three stadiums.
+// T-anne-is - the three stadiums.
 //
 // Each surface gets a venue *in the style of* a Grand Slam (no real logos or
 // sponsor names): Paris clay in afternoon sun, London grass in soft daylight,
@@ -56,7 +56,7 @@ const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
 // --- the three venues ---------------------------------------------------------------------
 export const VENUES = {
   clay: {
-    title: 'Paris-style terre battue',
+    title: 'Roland Garros', mark: { text: 'ROLAND GARROS', color: '#ffffff', accent: '#e8692c', hi: '#f08a4b' },
     sky: [0x2f7fd6, 0xeaf0f4], fog: [0xe8e1d6, 90, 230],
     hemi: [0xe2efff, 0xa4674a, 1.0], sun: { color: 0xffdcb0, intensity: 3.1, pos: [-11, 30, 15] },
     exposure: 1.0, bloom: 0.22,
@@ -66,7 +66,7 @@ export const VENUES = {
     fx: { dust: [0.80, 0.45, 0.27], dustN: 24, mark: '#7a3618', bounce: { freq: 110, noise: 0.9, nfreq: 650 } },
   },
   grass: {
-    title: 'London-style lawn',
+    title: 'Wimbledon', mark: { text: 'WIMBLEDON', color: '#efe6c8', accent: '#6b3fa0', hi: '#c9a8ff' },
     sky: [0x7aa3cf, 0xe6edf2], fog: [0xe1e7ea, 90, 230],
     hemi: [0xeaf2ff, 0x4f6a3e, 1.3], sun: { color: 0xfff7ea, intensity: 2.2, pos: [14, 34, 8] },
     exposure: 1.0, bloom: 0.18,
@@ -76,7 +76,7 @@ export const VENUES = {
     fx: { dust: [0.42, 0.72, 0.33], dustN: 8, mark: null, bounce: { freq: 90, noise: 0.5, nfreq: 420 } },
   },
   hard: {
-    title: 'New York-style night session',
+    title: 'US Open', mark: { text: 'US OPEN', color: '#ffffff', accent: '#ffd23f', hi: '#7fb6ff' },
     sky: [0x03060f, 0x17213f], fog: [0x0a1122, 110, 260],
     hemi: [0x9fb4e0, 0x1b2a22, 0.6], sun: { color: 0xf0f4ff, intensity: 2.6, pos: [2, 46, 4] },
     exposure: 1.12, bloom: 0.55,
@@ -149,24 +149,67 @@ function hardTex(hex, repeat) {
   }, repeat);
 }
 
-function wallTex(v) {
-  return canvasTex(2048, 160, (c, w, h) => {
-    c.fillStyle = v.wall; c.fillRect(0, 0, w, h);
-    c.fillStyle = v.trim; c.fillRect(0, 0, w, 10);
-    c.fillStyle = v.wallText; c.font = 'bold 60px -apple-system, Helvetica, Arial'; c.textBaseline = 'middle'; c.textAlign = 'center';
-    ['ME193', 'VIRTUAL TENNIS', 'ANNE JUMPER'].forEach((t, i) => c.fillText(t, (i + 0.5) * (w / 3), h / 2 + 8));
-  });
+// --- ad boards: the tournament, the game, and its one sponsor --------------------------------
+const FONT = '-apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+
+function drawBall(c, x, y, r) {
+  c.fillStyle = '#d8f23e'; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#ffffff'; c.lineWidth = r * 0.16;
+  c.beginPath(); c.arc(x - r * 1.25, y, r * 0.95, -0.75, 0.75); c.stroke();
+  c.beginPath(); c.arc(x + r * 1.25, y, r * 0.95, Math.PI - 0.75, Math.PI + 0.75); c.stroke();
 }
 
-function windowsTex() {
-  // the lit suite level between the two tiers of the night stadium
-  return canvasTex(1024, 64, (c, w, h) => {
-    c.fillStyle = '#0b0f1a'; c.fillRect(0, 0, w, h);
-    for (let x = 4; x < w; x += 22) {
-      c.fillStyle = Math.random() < 0.8 ? `rgba(255,${rnd(200, 235) | 0},${rnd(150, 200) | 0},${rnd(0.6, 1)})` : 'rgba(40,50,70,1)';
-      c.fillRect(x, 14, 16, 34);
+function drawAd(c, item, v, cx, cy, h) {
+  // one ad panel centered at (cx, cy)
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  if (item === 'venue') {
+    c.font = `800 ${h * 0.42}px ${FONT}`; c.fillStyle = v.mark.color;
+    c.fillText(v.mark.text, cx, cy);
+    const tw = c.measureText(v.mark.text).width;
+    c.fillStyle = v.mark.accent; c.fillRect(cx - tw / 2, cy + h * 0.27, tw, h * 0.06);
+  } else if (item === 'sponsor') {
+    c.font = `italic 800 ${h * 0.42}px ${FONT}`;
+    const t = 'Tennis > Ping Pong', tw = c.measureText(t).width;
+    drawBall(c, cx - tw / 2 - h * 0.18, cy, h * 0.15);
+    c.fillStyle = '#ffd23f'; c.fillText(t, cx + h * 0.12, cy);
+  } else if (item === 'game') {
+    c.font = `800 ${h * 0.44}px ${FONT}`;
+    const parts = [['T-', v.wallText], ['anne', v.mark.hi], ['-is', v.wallText]];
+    const total = parts.reduce((s, [t]) => s + c.measureText(t).width, 0);
+    let x = cx - total / 2;
+    c.textAlign = 'left';
+    for (const [t, col] of parts) {
+      c.fillStyle = col; c.fillText(t, x, cy);
+      x += c.measureText(t).width;
     }
-  }, [8, 1]);
+  } else {
+    c.font = `600 ${h * 0.3}px ${FONT}`; c.fillStyle = v.wallText;
+    c.fillText(item, cx, cy);
+  }
+}
+
+function adTex(v, items, panels, repeat) {
+  // a strip of ad panels on the venue's wall color, with a trim line on top
+  const pw = 680, h = 160;
+  return canvasTex(pw * panels, h, (c, w) => {
+    c.fillStyle = v.wall; c.fillRect(0, 0, w, h);
+    c.fillStyle = v.trim; c.fillRect(0, 0, w, 9);
+    for (let i = 0; i < panels; i++) {
+      if (i) { c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(i * pw - 1, 24, 2, h - 40); }
+      drawAd(c, items[i % items.length], v, (i + 0.5) * pw, h / 2 + 6, h);
+    }
+  }, repeat);
+}
+
+function ledTex(v) {
+  // the glowing ribbon board between the tiers of the night stadium
+  return canvasTex(680 * 4, 128, (c, w, h) => {
+    c.fillStyle = '#04060c'; c.fillRect(0, 0, w, h);
+    ['sponsor', 'venue', 'game', 'sponsor'].forEach((it, i) =>
+      drawAd(c, it, { ...v, wallText: '#ffffff' }, (i + 0.5) * 680, h / 2 + 4, h));
+    c.fillStyle = 'rgba(255,255,255,0.06)';                   // LED pixel grid
+    for (let x = 0; x < w; x += 4) c.fillRect(x, 0, 1, h);
+  }, [3, 1]);
 }
 
 function shadeTex() {
@@ -222,7 +265,7 @@ function buildSurface(g, key) {
 
 // --- walls, stands, roof ------------------------------------------------------------------
 function buildWalls(g, v) {
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex(v), roughness: 0.75 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: adTex(v, ['venue', 'sponsor', 'game'], 3), roughness: 0.75 });
   const far = new THREE.Mesh(new THREE.BoxGeometry(2 * SIDE_WALL_X + 0.4, 1.4, 0.3), wallMat);
   far.position.copy(V(0, 0.7, FAR_WALL_Z)); g.add(far);
   const sideMat = new THREE.MeshStandardMaterial({ color: v.wall, roughness: 0.75 });
@@ -230,6 +273,13 @@ function buildWalls(g, v) {
     const w = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.1, FAR_WALL_Z + 10), sideMat);
     w.position.copy(V(sx * SIDE_WALL_X, 0.55, (FAR_WALL_Z - 10) / 2)); w.castShadow = true;
     g.add(w);
+    // ad boards along the inside of each side wall
+    const len = FAR_WALL_Z + 10, ads = new THREE.MeshStandardMaterial({
+      map: adTex(v, ['sponsor', 'venue', 'game', 'ME193 \u00b7 ANNE JUMPER'], 4, [len / 24, 1]), roughness: 0.7 });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.1), ads);
+    board.rotation.y = sx < 0 ? Math.PI / 2 : -Math.PI / 2;     // facing the court, reading left to right
+    board.position.copy(V(sx * (SIDE_WALL_X - 0.16), 0.55, (FAR_WALL_Z - 10) / 2));
+    g.add(board);
   }
   // fake contact shadows where the walls meet the court
   const shade = new THREE.MeshBasicMaterial({ map: shadeTex(), transparent: true, depthWrite: false });
@@ -293,7 +343,8 @@ function buildBowl(g, v, tiers, roof) {
 
   // the band between tiers (night stadium suites)
   for (const b of bands) {
-    const mat = new THREE.MeshStandardMaterial({ map: windowsTex(), emissive: 0xffffff, emissiveMap: windowsTex(), emissiveIntensity: 0.9, roughness: 0.3 });
+    const led = ledTex(v);
+    const mat = new THREE.MeshStandardMaterial({ map: led, emissive: 0xffffff, emissiveMap: led, emissiveIntensity: 1.1, roughness: 0.3 });
     const halfW = innerX + b.d + b.depth;
     const f = new THREE.Mesh(new THREE.BoxGeometry(2 * halfW, b.h, b.depth), mat);
     f.position.copy(V(0, b.y + b.h / 2, innerZ + b.d + b.depth / 2)); g.add(f);
@@ -348,7 +399,10 @@ function buildBowl(g, v, tiers, roof) {
       }
     }
   }
-  return { top, outer, innerZ, innerX };
+  // how far out (from the court's center line) the side stands are at height h
+  const levels = [...rows, ...bands].sort((a, b) => a.y - b.y);
+  const sideXAt = h => innerX + (levels.find(r => r.y >= h) || { d: outer }).d;
+  return { top, outer, innerZ, innerX, sideXAt };
 }
 
 // --- courtside ------------------------------------------------------------------------------
@@ -388,11 +442,39 @@ function buildBoard(g, v, key, bowl) {
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
   if (key === 'hard') mat.color.multiplyScalar(1.6);   // LED board glows at night
+  // A scoreboard tower just behind the far wall, in front of the crowd: high enough
+  // to clear the opponent, low enough to sit under the roof and inside the camera view.
+  const BOARD_Y = 9.6, boardZ = bowl.innerZ - 0.7;
   const board = new THREE.Mesh(new THREE.PlaneGeometry(9, 2.8), mat);
-  board.position.copy(V(0, bowl.top + 2.6, bowl.innerZ + bowl.outer - 0.2));
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(9.5, 3.3, 0.4), new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.5 }));
+  board.position.copy(V(0, BOARD_Y, boardZ));
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.5, metalness: 0.3 });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(9.5, 3.3, 0.4), darkMat);
   frame.position.copy(board.position).add(new THREE.Vector3(0, 0, -0.25));
   g.add(frame, board);
+
+  // hung from a steel truss that spans the stadium between the two side stands
+  const trussY = BOARD_Y + 3.6, span = 2 * bowl.sideXAt(trussY) + 1;
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8a929c, roughness: 0.4, metalness: 0.5 });
+  for (const dy of [0.3, -0.3]) {                          // top and bottom chords
+    const chord = new THREE.Mesh(new THREE.BoxGeometry(span, 0.12, 0.12), steel);
+    chord.position.copy(V(0, trussY + dy, boardZ + 0.25)); g.add(chord);
+  }
+  if (key === 'hard') {                                     // night: an LED strip along the truss
+    const led = new THREE.MeshBasicMaterial({ color: 0x9fd0ff, toneMapped: false });
+    led.color.multiplyScalar(2.5);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(span, 0.06, 0.06), led);
+    strip.position.copy(V(0, trussY - 0.38, boardZ + 0.15)); g.add(strip);
+  }
+  for (let x = -span / 2, k = 0; x < span / 2; x += 0.6, k++) {   // zig-zag lacing
+    const lace = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.72, 0.05), steel);
+    lace.position.copy(V(x + 0.3, trussY, boardZ + 0.25));
+    lace.rotation.z = k % 2 ? 0.45 : -0.45; g.add(lace);
+  }
+  const cableTop = trussY - 0.3, cableBottom = BOARD_Y + 1.65, cableLen = cableTop - cableBottom;
+  for (const sx of [-4.2, -1.4, 1.4, 4.2]) {
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, cableLen, 6), steel);
+    cable.position.copy(V(sx, cableBottom + cableLen / 2, boardZ + 0.25)); g.add(cable);
+  }
 
   const draw = (streak, record) => {
     const ctx = c.getContext('2d');

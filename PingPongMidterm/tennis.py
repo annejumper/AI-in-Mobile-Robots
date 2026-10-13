@@ -1,5 +1,6 @@
 """
-VIRTUAL TENNIS  -  ME193 Midterm  -  Anne Jumper
+T-ANNE-IS  -  ME193 Midterm  -  Anne Jumper
+(a virtual tennis game)
 
 Your racket is a LEGO Education Double Motor (Connection Card 6065).
 
@@ -45,6 +46,8 @@ TAG_SURFACES = {4: "clay", 5: "grass", 6: "hard"}
 START_FRAMES = 6          # frames the START tag must be seen (debounce)
 PERFECT_Z = 0.6           # swing within this many meters of the contact plane = PERFECT
 SETTLE_S = 0.08           # wait this long after a swing for a stronger one (windup -> real swing)
+VIEW_LAG_S = 0.06         # the ball you SEE is ~this far behind the simulation (camera, pose, browser),
+                          # so judge your swing against where the ball appeared to be
 HIT_NOW_POWER = 0.45      # weaker candidates wait until the ball has passed, in case a real swing follows
 EARLY_FLASH_POWER = 0.5   # only scold 'too early' for a real swing, not a windup
 
@@ -267,65 +270,72 @@ class Game:
         """1. TIMING (IMU): where was the ball at the fastest instant of the
         swing? Swings inside the hitting window become candidates and the
         STRONGEST one wins -- so a slow windup or reset never beats the real swing."""
-        p = interp(self.ball_hist, sw.t_peak)
+        p = interp(self.ball_hist, sw.t_peak - VIEW_LAG_S)
         if p is None:
             return
         z = p[2]
         lv = self.level
         if z > lv.z_early:
             if sw.power >= EARLY_FLASH_POWER:
-                self.flash("Too early!", f"ball was still {z:.1f} m away", YELLOW, 0.8)
+                self.flash("Too early!", "", YELLOW, 0.8)
             return  # a free practice swing (or a windup); you can still hit this ball
         if z < lv.z_late:
             if self.candidate is None:
-                self.end_rally("Too late!", f"ball was {-z:.1f} m behind you")
+                self.end_rally("Too late!", "")
             return  # otherwise it's just the follow-through
         if self.candidate is None or sw.power > self.candidate[0].power:
             self.candidate = (sw, p)
 
     def judge(self, sw, p):
-        x, y, z = p
+        z = p[2]
         lv = self.level
-        # 2. POSITION (pose): was the racket where the ball was?
+        # 2. POSITION (pose): was the racket in the ring -- the spot where the
+        # ball crosses your hitting plane? (Timing already came from the IMU.)
+        x, y = self.ghost if self.ghost else p[:2]
         r = interp(self.racket_hist, sw.t_peak)
         if r is None:
             self.end_rally("Can't see your racket hand", "stay in view of the camera")
             return
         bx, by = self.frame.to_screen(x, y)
         dx = (r[0] - bx) / self.frame.ppm
-        dy = (by - r[1]) / self.frame.ppm          # + means racket above the ball
+        dy = (by - r[1]) / self.frame.ppm          # + means racket above the ring
         if np.hypot(dx, dy) > lv.hit_radius:
             if abs(dy) >= abs(dx):
-                where = f"{abs(dy) * 100:.0f} cm too {'high' if dy > 0 else 'low'}"
+                where = f"too {'high' if dy > 0 else 'low'}"
                 if dy > 0 and self.surface_key == "grass":
                     where += " - grass stays low!"
                 elif dy < 0 and self.surface_key == "clay":
                     where += " - clay kicks up!"
             else:
-                where = f"{abs(dx) * 100:.0f} cm too far {'right' if dx > 0 else 'left'}"
+                where = f"too far {'right' if dx > 0 else 'left'}"
             self.end_rally("Missed!", f"racket {where}")
             return
         self.hit(sw, x, y, z)
 
     def spin_from(self, sw, stroke):
-        """Spin comes from YAW TWIST during the swing (signed: + topspin,
-        - slice, inside the dead zone = flat). If a trained KNN is loaded,
-        it decides the stroke (forehand/backhand) and spin type, and the
+        """Forehand/backhand comes from the CAMERA: which side of your body the
+        ring was on. Spin comes from YAW TWIST during the swing (signed:
+        + topspin, - slice, inside the dead zone = flat). If a trained KNN is
+        loaded, its model for THIS stroke decides the spin type, and the
         twist sets how much spin."""
         how = "yaw twist"
         topspin = sw.spin * (rk.BACKHAND_SPIN_SIGN if stroke == "backhand" else 1)
-        if sw.label:                      # e.g. "backhand_slice"
-            *knn_stroke, kind = sw.label.split("_")
-            stroke = knn_stroke[0] if knn_stroke else stroke
+        knn = getattr(self.racket, "knn", None)
+        kind = knn.predict_spin(sw.features(), stroke) if knn else None
+        if kind:
+            sw.label = f"{stroke}_{kind}"
             d = {"topspin": 1, "slice": -1}.get(kind, 0)
             topspin, how = d * max(abs(sw.spin), 0.4), "KNN"
         label = "TOPSPIN" if topspin > 0.15 else "SLICE" if topspin < -0.15 else "FLAT"
-        return stroke, topspin, label, how
+        return topspin, label, how
 
     def hit(self, sw, x, y, z):
         perfect = bool(abs(z) < PERFECT_Z)
         side = "forehand" if x * self.hand_sign > 0 else "backhand"
-        stroke, topspin, label, how = self.spin_from(sw, side)
+        stroke = side
+        topspin, label, how = self.spin_from(sw, stroke)
+        print(f"[hit] {stroke} {label.lower():7s} ({how})  pitch {sw.peak_rate:+5.0f}  "
+              f"yaw {sw.peak_twist:+5.0f}  other {sw.other_peak:+5.0f}  power {sw.power * 100:3.0f}%")
         power = sw.power
         self.racket.hit(power, perfect, label)
         self.ball = launch_return(x, y, power, topspin, 0.0, self.rng)
@@ -333,8 +343,6 @@ class Game:
         self.last_shot = dict(power=power, speed=shot_speed(power), label=label, spin=topspin,
                               how=how, height=y, perfect=perfect, stroke=stroke)
         detail = f"{stroke}  {label.lower()}"
-        if stroke != side:
-            detail += f"  (a {stroke} on your {side} side!)"
         self.flash("PERFECT!" if perfect else "Nice hit!", detail, GREEN, 0.9)
         self.fx.append({"type": "hit", "pos": [x, y, 0.0], "power": power, "perfect": perfect,
                         "label": label, "stroke": stroke})
@@ -354,7 +362,7 @@ class Game:
                 if val > FAR_BASELINE_Z:
                     tip = ("add TOPSPIN to bring a big swing down" if self.last_shot["label"] != "TOPSPIN"
                            else "swing a little softer")
-                    self.end_rally("LONG!", f"{val - FAR_BASELINE_Z:.1f} m out - {tip}")
+                    self.end_rally("LONG!", tip)
                 else:
                     self.rally_point()
         self.trail.append(self.ball.pos.copy())
@@ -378,7 +386,7 @@ class Game:
         self.fx.append({"type": "miss", "title": title})
         if self.record_this_rally:
             self.racket.new_record()
-            detail = f"{detail}   ***  NEW RECORD: {self.record}  ***"
+            detail = f"{detail}   ***  NEW RECORD: {self.record}  ***".strip()
         self.flash(title, detail, RED, 2.5)
         self.ghost = None
         self.set_state("OVER")
@@ -512,7 +520,7 @@ class Game:
         now = time.monotonic()
         # top-left: settings
         shade(img, 0, 0, 420, 108)
-        text(img, "VIRTUAL TENNIS", (14, 34), 0.95, YELLOW, 2)
+        text(img, "T-anne-is", (14, 34), 0.95, YELLOW, 2)
         cv2.rectangle(img, (14, 50), (34, 70), self.surface.court_bgr, -1)
         text(img, f"{self.surface.name} court - {self.surface.blurb}", (42, 67), 0.5)
         text(img, f"Level {self.level_id}: {self.level.name} ({self.level.speed:.0f} m/s)", (14, 96), 0.6)
@@ -580,7 +588,7 @@ class Game:
 # --- main ---------------------------------------------------------------------
 
 def main():
-    ap = argparse.ArgumentParser(description="Virtual Tennis with a LEGO Double Motor racket")
+    ap = argparse.ArgumentParser(description="T-anne-is: virtual tennis with a LEGO Double Motor racket")
     ap.add_argument("--sim", action="store_true", help="no hub: swing with the keyboard")
     ap.add_argument("--hand", choices=["right", "left"], default="right", help="racket hand")
     ap.add_argument("--level", type=int, choices=[1, 2, 3], default=1)
@@ -628,7 +636,7 @@ def main():
     board = Scoreboard(not args.no_mqtt, args.topic)
 
     game = Game(racket, board, BodyFrame(w, h), args.hand, args.level, args.surface, args.sim)
-    view, win = None, "Virtual Tennis - Anne Jumper"
+    view, win = None, "T-anne-is - Anne Jumper"
     if args.view == "web":
         from webview import WebView
         view = WebView(open_browser=not args.no_browser, low=args.low_graphics)

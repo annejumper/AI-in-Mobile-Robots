@@ -1,5 +1,5 @@
 """
-Camera-side sensing for Virtual Tennis.
+Camera-side sensing for T-anne-is.
 
   * PoseTracker - MediaPipe Pose Landmarker; finds the player's racket hand.
   * TagReader   - AprilTag (36h11) detection with OpenCV's aruco module.

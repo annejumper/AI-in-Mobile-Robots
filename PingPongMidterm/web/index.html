@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Virtual Tennis</title>
+  <title>T-anne-is</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
@@ -13,7 +13,7 @@
 
   <div id="hud">
     <div id="title" class="panel">
-      <div class="brand">VIRTUAL <b>TENNIS</b></div>
+      <div class="brand">T-<b>anne</b>-is</div>
       <div class="row"><span class="chip"></span><span id="surfaceName">Hard court</span></div>
       <div id="blurb" class="sub"></div>
       <div id="levelLine" class="sub"></div>
@@ -25,14 +25,24 @@
       <div id="topic" class="tiny"><span id="mqttDot" class="dot"></span><span id="topicText"></span></div>
     </div>
 
-    <div id="imu" class="panel">
-      <div id="imuTitle" class="lbl">IMU &middot; DOUBLE MOTOR 6065</div>
-      <div class="meter"><span>Swing (pitch)</span>
-        <div class="bar"><div id="swingFill"></div><div id="swingTick" class="tick"></div></div></div>
-      <div class="meter"><span>Twist (yaw)</span>
-        <div class="bar"><div id="deadBand"></div><div id="twistFill"></div><div class="mid"></div></div></div>
-      <div class="twistLabels"><span></span><span>slice</span><span>flat</span><span>topspin</span></div>
-      <div id="lastSwing" class="tiny">swing the racket to test</div>
+    <div id="leftStack">
+      <div id="chris" class="panel">
+        <img id="chrisImg" src="img/chris-happy.png" alt="Chris reacting">
+        <div id="chrisText">
+          <div class="lbl">CHRIS COMMENTARY</div>
+          <div id="chrisQuote">Let's see what you've got.</div>
+        </div>
+      </div>
+
+      <div id="imu" class="panel">
+        <div id="imuTitle" class="lbl">IMU &middot; DOUBLE MOTOR 6065</div>
+        <div class="meter"><span>Swing (pitch)</span>
+          <div class="bar"><div id="swingFill"></div><div id="swingTick" class="tick"></div></div></div>
+        <div class="meter"><span>Twist (yaw)</span>
+          <div class="bar"><div id="deadBand"></div><div id="twistFill"></div><div class="mid"></div></div></div>
+        <div class="twistLabels"><span></span><span>slice</span><span>flat</span><span>topspin</span></div>
+        <div id="lastSwing" class="tiny">swing the racket to test</div>
+      </div>
     </div>
 
     <div id="shot" class="panel hidden">
@@ -59,12 +69,12 @@
       <h1>Show AprilTag <span>0</span> to start</h1>
       <div class="progress"><div id="startFill"></div></div>
       <div class="tagGrid">
-        <div class="tag" data-level="1"><span class="id">1</span>Club<i>13 m/s</i></div>
-        <div class="tag" data-level="2"><span class="id">2</span>Varsity<i>18 m/s</i></div>
-        <div class="tag" data-level="3"><span class="id">3</span>Pro<i>25 m/s</i></div>
-        <div class="tag" data-surface="clay"><span class="id">4</span>Clay<i>high, slow bounce</i></div>
-        <div class="tag" data-surface="grass"><span class="id">5</span>Grass<i>low, fast skid</i></div>
-        <div class="tag" data-surface="hard"><span class="id">6</span>Hard<i>true bounce</i></div>
+        <div class="tag" data-level="1"><span class="id">1</span>Club<i>9 m/s</i></div>
+        <div class="tag" data-level="2"><span class="id">2</span>Varsity<i>12 m/s</i></div>
+        <div class="tag" data-level="3"><span class="id">3</span>Pro<i>16 m/s</i></div>
+        <div class="tag" data-surface="clay"><span class="id">4</span>Clay<i>Roland Garros</i></div>
+        <div class="tag" data-surface="grass"><span class="id">5</span>Grass<i>Wimbledon</i></div>
+        <div class="tag" data-surface="hard"><span class="id">6</span>Hard<i>US Open &middot; night</i></div>
       </div>
       <div class="how">
         Hold the hub like a racket. <b>Swing</b> = pitch. <b>Twist</b> (yaw) one way = topspin, other way = slice.<br>
