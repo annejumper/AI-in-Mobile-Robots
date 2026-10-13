@@ -15,8 +15,10 @@ AprilTags (36h11):  0 = START    1 = Club   2 = Varsity   3 = Pro
                     4 = Clay     5 = Grass  6 = Hard court
 SERVE: you start with the ball. Raise your free hand to toss it, then hit
        it on the way down into the opponent's service box (2 faults = over).
+NET:   TURN a motor shaft one full turn by hand while your shot is on its way
+       to run up to the net: forehand / backhand volleys and overheads.
 
-Keys: Q quit | 1/2/3 level | C/G/H surface | S start | U toss
+Keys: Q quit | 1/2/3 level | C/G/H surface | S start | U toss | N run to the net
       (--sim, no hub: SPACE flat, T topspin, B slice, F full power)
 
 Run:  .venv/bin/python tennis.py            (add --sim to play without the hub)
@@ -39,8 +41,9 @@ import numpy as np
 
 import racket as rk
 from court import (BALL_RADIUS, BASELINE_Z, FAR_BASELINE_Z, G, HALF_WIDTH, LEVELS, NET_HEIGHT,
-                   NET_Z, OPPONENT_Z, SERVICE_LINE, SURFACES, Ball, in_service_box, launch_incoming,
-                   launch_return, launch_serve, shot_speed)
+                   NET_PLAYER_Z, NET_Z, OPPONENT_Z, SERVICE_LINE, SURFACES, Ball, in_service_box,
+                   landing, landing_z, launch_incoming, launch_net_shot, launch_return, launch_serve,
+                   shot_speed)
 from vision import SKELETON, BodyFrame, PoseTracker, TagReader
 
 TOPIC = "ME193/Rogers/AnneJumper"
@@ -60,10 +63,21 @@ TOSS_HAND_Y = 1.75        # raising your free hand above this (m, about head hei
 TOSS_PEAK = 3.0           # the toss rises to this height (m)
 TOSS_X = 0.3              # the toss drifts this far to your racket side, like a real one
 SERVE_CONTACT_Y = 2.1     # where the "hit here" ring sits: full reach overhead (m)
-SERVE_REACH = 1.25        # serve hit radius = the level's hit radius * this (overheads are hard to aim)
-SERVE_LOW = 1.2           # a ball that has dropped below this is past hitting
+SERVE_REACH = 2.0         # first-serve hit radius = the level's hit radius * this (very forgiving)
+SERVE_LOW = 0.8           # a ball that has dropped below this is past hitting
+RETOSS_Y = 0.3            # no swing by the time it's this low (and none in progress): toss again
+# Everyone should get the serve in: a second serve hits wherever your racket is,
+# and every serve you hit is played softer until it lands in the box.
 SERVE_WINDOW = (-0.3, 0.1)  # look for the racket's closest pass this long before/after the swing peak (s)
 WINDUP_FRAC = 0.6         # swings while the toss is still in the first 60% of its rise are the windup
+
+# At the net
+RUN_SPEED = 11.0          # m/s you run up to the net (about a second)
+NET_SPEED = 0.8           # the opponent's balls are this much slower when you're at the net
+LOB_CHANCE = 0.3          # how often the opponent lobs you once you're at the net
+OVERHEAD_Y = 1.8          # a ball above this height (m) at contact is an OVERHEAD, below it a volley
+NET_REACH = 1.0           # volley / overhead hit radius = the level's hit radius * this
+VOLLEY_SPIN = -0.25       # volleys are punched with a little underspin
 
 WHITE, BLACK = (255, 255, 255), (0, 0, 0)
 YELLOW, GREEN, RED, CYAN = (0, 230, 255), (90, 220, 90), (70, 70, 240), (230, 200, 60)
@@ -182,6 +196,9 @@ class Game:
         self.tossed = False
         self.toss_armed = False               # free hand was seen low first, so a raised hand is a toss
         self.toss_t, self.toss_up = 0.0, 0.0  # when the toss left your hand, and its rise time
+        self.at_net = False
+        self.net_queued = False               # you asked for the net; go right after your next shot
+        self.player_z = 0.0                   # your contact plane: 0 at the baseline, NET_PLAYER_Z at the net
         self._count = 4
         self.racket.light(self.surface.light)
         self.board.post(self.record)
@@ -196,7 +213,9 @@ class Game:
 
     @property
     def hit_radius(self):
-        return self.level.hit_radius * (SERVE_REACH if self.state == "SERVE" else 1.0)
+        if self.state == "SERVE":
+            return self.level.hit_radius * SERVE_REACH
+        return self.level.hit_radius * (NET_REACH if self.at_net else 1.0)
 
     @property
     def ring(self):
@@ -208,7 +227,6 @@ class Game:
     def set_state(self, s):
         self.state = s
         self.state_t = time.monotonic()
-        self.racket.serve_mode(s == "SERVE")
 
     def flash(self, title, detail="", color=WHITE, secs=1.2):
         self.msg = (title, detail, color, time.monotonic() + secs)
@@ -234,6 +252,7 @@ class Game:
 
     def start(self):
         if self.state in ("MENU", "OVER"):
+            self.net_queued = False
             self.streak = 0
             self.serve_faults = 0
             self.record_this_rally = False
@@ -252,6 +271,13 @@ class Game:
         self.free_world = self.frame.to_world(*body.free) if body is not None and body.free else None
         for sw in swings:
             self.last_swing = sw
+        if self.racket.poll_net_call():
+            print(f"[net] shaft turned (state {self.state})")
+            self.call_net()
+        target = NET_PLAYER_Z if self.at_net else 0.0
+        self.player_z += float(np.clip(target - self.player_z, -RUN_SPEED * dt, RUN_SPEED * dt))
+        # Serves, volleys and overheads aren't swung about the pitch axis
+        self.racket.any_axis_swings(self.state == "SERVE" or (self.state == "INCOMING" and self.at_net))
 
         if self.state == "COUNTDOWN":
             n = 3 - int(t - self.state_t)
@@ -281,7 +307,11 @@ class Game:
         side = self.rng.choice([1, -1])
         x_target = side * self.rng.uniform(0.35, 0.75)
         mult = min(1.0 + 0.03 * self.streak, 1.35)   # rallies heat up
-        self.ball, self.ghost = launch_incoming(self.level, self.surface, self.rng, mult, z0, x_target)
+        if self.at_net:
+            self.ball, self.ghost = launch_net_shot(self.level, self.rng, mult * NET_SPEED, z0, x_target,
+                                                    lob=self.rng.random() < LOB_CHANCE)
+        else:
+            self.ball, self.ghost = launch_incoming(self.level, self.surface, self.rng, mult, z0, x_target)
         self.show_ghost = self.level.ghost_early
         self.candidate = None
         self.ball_hist.clear()
@@ -297,6 +327,7 @@ class Game:
         return -self.hand_sign * 0.35, 1.05
 
     def start_serve(self):
+        self.at_net, self.player_z = False, 0.0   # you always serve from the baseline
         self.ball = Ball((*self.hand_spot(), 0.0), (0.0, 0.0, 0.0))
         self.tossed = self.toss_armed = self.serving = False
         self.candidate = self.ghost = None
@@ -343,7 +374,8 @@ class Game:
             if (settled and c[0].power >= HIT_NOW_POWER) or self.ball.pos[1] < SERVE_LOW:
                 self.candidate = None
                 self.judge_serve(*c)
-        elif not c and self.ball.pos[1] < SERVE_LOW and self.ball.vel[1] < 0:
+        elif (not c and not self.racket.in_swing and self.ball.pos[1] < RETOSS_Y
+              and self.ball.vel[1] < 0):   # a swing is only reported once it ends, so wait for it
             self.start_serve()   # you let it drop: toss again, no fault
             self.flash("Re-toss", "hit the ball on the way down", CYAN, 60)
 
@@ -358,49 +390,57 @@ class Game:
         if self.candidate is None or sw.power > self.candidate[0].power:
             self.candidate = (sw, p)
 
-    def judge_serve(self, sw, p):
-        """Was the racket on the ball? A fast overhead arm blurs on camera and
-        the hub's fastest instant isn't exactly the contact, so use the
-        racket's closest pass to the ball around the swing (world meters)."""
-        best = None   # (distance, dx, dy, ball position)
+    def closest_pass(self, sw, target=None):
+        """A fast arm blurs on camera and the hub's fastest instant isn't
+        exactly the contact, so find the racket's closest pass around the
+        swing (world meters) -- to the ball as it flew, or to a fixed target
+        point (the ring). Returns (distance, dx, dy, (x, y) of the ball) or None."""
+        best = None
         for t, sx, sy, _ in self.racket_hist:
             if not SERVE_WINDOW[0] <= t - sw.t_peak <= SERVE_WINDOW[1]:
                 continue
-            b = interp(self.ball_hist, t - VIEW_LAG_S)
+            b = target or interp(self.ball_hist, t - VIEW_LAG_S)
             if b is None:
                 continue
             rx, ry = self.frame.to_world(sx, sy)
             d = math.hypot(rx - b[0], ry - b[1])
             if best is None or d < best[0]:
-                best = (d, rx - b[0], ry - b[1], b)
-        print(f"[serve] power {sw.power * 100:3.0f}%  " + (
+                best = (d, rx - b[0], ry - b[1], b[:2])
+        return best
+
+    def report(self, tag, sw, best):
+        print(f"[{tag}] power {sw.power * 100:3.0f}%  " + (
             f"closest {best[0] * 100:.0f} cm (ring {self.hit_radius * 100:.0f} cm)  "
             f"{off_by(best[1], best[2])}  ball at {best[3][1]:.2f} m" if best else "racket not seen"))
-        if best is None:
-            self.fault("Can't see your racket hand", "step back so your arm fits in the camera overhead")
+
+    def judge_serve(self, sw, p):
+        """Was the racket on the ball? (closest pass, see closest_pass)
+        On a second serve any real swing hits it: nobody double-faults by whiffing."""
+        best = self.closest_pass(sw)
+        self.report("serve", sw, best)
+        second = self.serve_faults > 0
+        if not second and (best is None or best[0] > self.hit_radius):
+            if best is None:
+                self.fault("Can't see your racket hand", "step back so your arm fits in the camera overhead")
+            else:
+                self.fault("Missed the toss!", f"racket {off_by(best[1], best[2])}")
             return
-        d, dx, dy, b = best
-        if d > self.hit_radius:
-            self.fault("Missed the toss!", f"racket {off_by(dx, dy)}")
-            return
-        self.hit_serve(sw, b[0], b[1], perfect=d < 0.35 * self.hit_radius)
+        x, y = best[3] if best else p[:2]
+        self.hit_serve(sw, x, y, perfect=best is not None and best[0] < 0.35 * self.level.hit_radius)
 
     def hit_serve(self, sw, x, y, perfect):
         """Serves are flat: the overhead swing itself turns the hub on the
         twist axis, so the twist can't be read as spin here."""
         topspin, power = 0.0, sw.power
         label = spin_label(topspin)
-        self.racket.hit(power, perfect, label)
-        self.ball = launch_serve(x, y, power, topspin, self.rng)
-        self.trail.clear()
-        self.last_shot = dict(power=power, speed=shot_speed(power), label=label, spin=topspin,
-                              how="yaw twist", height=y, perfect=perfect, stroke="serve")
-        self.flash("PERFECT!" if perfect else "Serve!", f"{label.lower()} serve", GREEN, 0.9)
-        self.fx.append({"type": "hit", "pos": [x, y, 0.0], "power": power, "perfect": perfect,
-                        "label": label, "stroke": "serve"})
+        while True:   # take pace off until it lands in the box
+            ball = launch_serve(x, y, power, topspin, self.rng)
+            if power <= 0.15 or in_service_box(*landing(ball, self.surface)):
+                break
+            power -= 0.05
         self.serving = True
-        self.ghost = None
-        self.set_state("OUTGOING")
+        self.send_shot(ball, "serve", label, topspin,
+                       power, perfect, "flat serve", x, y, "Serve!", f"{label.lower()} serve")
 
     def fault(self, title, detail):
         self.serving = False
@@ -413,6 +453,73 @@ class Game:
         self.fx.append({"type": "fault", "title": title})
         self.flash(title, f"{detail} - second serve", RED, 1.6)
         self.set_state("FAULT")
+
+    # --- coming to the net ----------------------------------------------------------
+    def call_net(self):
+        """You turned a shaft (or pressed N). While your shot is on its way you
+        run in now; any other time in a rally, right after your next shot."""
+        if self.at_net:
+            return
+        if self.state == "OUTGOING":
+            self.approach()
+        elif self.state in ("SERVE", "FAULT", "INCOMING") and not self.net_queued:
+            self.net_queued = True
+            self.fx.append({"type": "count", "n": 1})   # a short tick: heard you
+            self.flash("Net after this shot", "you'll run in as soon as you hit", CYAN, 1.2)
+
+    def approach(self):
+        """Run up to the net while your shot is on its way."""
+        self.net_queued = False
+        if self.state != "OUTGOING" or self.at_net:
+            return
+        self.at_net = True
+        self.racket.approach()
+        self.fx.append({"type": "approach"})
+        self.flash("To the net!", "volley it before it bounces", CYAN, 1.2)
+
+    def judge_net(self, sw, p):
+        """Volleys and overheads: was the racket in the ring? Timing already
+        came from consider(); position uses the racket's closest pass to the ring."""
+        best = self.closest_pass(sw, target=self.ghost)
+        self.report("net", sw, best)
+        if best is None:
+            self.end_rally("Can't see your racket hand", "stay in view of the camera")
+            return
+        d, dx, dy, (x, y) = best
+        if d > self.hit_radius:
+            self.end_rally("Missed!", f"racket {off_by(dx, dy)}")
+            return
+        overhead = y >= OVERHEAD_Y
+        side = "forehand" if x * self.hand_sign > 0 else "backhand"
+        stroke = "overhead" if overhead else f"{side} volley"
+        # A volley is a block: most of its pace comes from the incoming ball.
+        power = sw.power if overhead else 0.4 + 0.4 * sw.power
+        topspin = 0.0 if overhead else VOLLEY_SPIN
+        label = spin_label(topspin)
+        aim_z = self.rng.uniform(18.5, 22.5)
+        while True:   # a low volley must rise over the net, so play it softer until it lands in
+            ball = launch_return(x, y, power, topspin, 0.0, self.rng, aim_z=aim_z, z0=self.player_z)
+            if power <= 0.2 or landing_z(ball, self.surface) <= FAR_BASELINE_Z - 0.5:
+                break
+            power -= 0.05
+        self.send_shot(ball, stroke, label, topspin, power, d < 0.35 * self.hit_radius, "camera",
+                       x, y, "Smash!" if overhead else "Volley!", stroke)
+
+    def send_shot(self, ball, stroke, label, topspin, power, perfect, how, x, y, title, detail):
+        """Your ball is on its way: haptics, the shot card, sounds, and OUTGOING."""
+        self.racket.hit(power, perfect, label)
+        self.ball = ball
+        self.trail.clear()
+        self.last_shot = dict(power=power, speed=shot_speed(power), label=label, spin=topspin,
+                              how=how, height=y, perfect=perfect, stroke=stroke)
+        self.flash("PERFECT!" if perfect else title, detail, GREEN, 0.9)
+        self.fx.append({"type": "hit", "pos": [x, y, self.player_z], "power": power, "perfect": perfect,
+                        "label": label, "stroke": stroke})
+        self.show_ghost = False
+        self.ghost = None
+        self.set_state("OUTGOING")
+        if self.net_queued:
+            self.approach()
 
     # --- the opponent's ball ------------------------------------------------------
     def update_incoming(self, t, dt, swings):
@@ -433,14 +540,17 @@ class Game:
         c = self.candidate
         if c and self.state == "INCOMING" and not self.racket.in_swing:
             settled = t - c[0].t_end > SETTLE_S
-            passed = self.ball.pos[2] < self.level.z_late
+            passed = self.ball.pos[2] - self.player_z < self.level.z_late
             if (settled and c[0].power >= HIT_NOW_POWER) or passed:
                 self.candidate = None
                 self.judge(*c)
 
-        if (self.state == "INCOMING" and self.ball.pos[2] < self.level.z_late - 0.4
+        if (self.state == "INCOMING" and self.ball.pos[2] - self.player_z < self.level.z_late - 0.4
                 and not self.racket.in_swing and self.candidate is None):
-            self.end_rally("No swing!", "Swing the racket as the ball reaches you")
+            if self.at_net and self.ghost and self.ghost[1] >= OVERHEAD_Y:
+                self.end_rally("Lobbed!", "swing overhead as it drops through the ring")
+            else:
+                self.end_rally("No swing!", "Swing the racket as the ball reaches you")
 
     # --- THE POLICY: was that swing a hit? -------------------------------------
     def consider(self, sw):
@@ -450,7 +560,7 @@ class Game:
         p = interp(self.ball_hist, sw.t_peak - VIEW_LAG_S)
         if p is None:
             return
-        z = p[2]
+        z = p[2] - self.player_z     # how far in front of you the ball was
         lv = self.level
         if z > lv.z_early:
             if sw.power >= EARLY_FLASH_POWER:
@@ -464,7 +574,10 @@ class Game:
             self.candidate = (sw, p)
 
     def judge(self, sw, p):
-        z = p[2]
+        if self.at_net:
+            self.judge_net(sw, p)
+            return
+        z = p[2] - self.player_z
         lv = self.level
         # 2. POSITION (pose): was the racket in the ring -- the spot where the
         # ball crosses your hitting plane? (Timing already came from the IMU.)
@@ -510,17 +623,8 @@ class Game:
         print(f"[hit] {stroke} {label.lower():7s} ({how})  pitch {sw.peak_rate:+5.0f}  "
               f"yaw {sw.peak_twist:+5.0f}  other {sw.other_peak:+5.0f}  power {sw.power * 100:3.0f}%")
         power = sw.power
-        self.racket.hit(power, perfect, label)
-        self.ball = launch_return(x, y, power, topspin, 0.0, self.rng)
-        self.trail.clear()
-        self.last_shot = dict(power=power, speed=shot_speed(power), label=label, spin=topspin,
-                              how=how, height=y, perfect=perfect, stroke=stroke)
-        detail = f"{stroke}  {label.lower()}"
-        self.flash("PERFECT!" if perfect else "Nice hit!", detail, GREEN, 0.9)
-        self.fx.append({"type": "hit", "pos": [x, y, 0.0], "power": power, "perfect": perfect,
-                        "label": label, "stroke": stroke})
-        self.show_ghost = False
-        self.set_state("OUTGOING")
+        self.send_shot(launch_return(x, y, power, topspin, 0.0, self.rng), stroke, label, topspin,
+                       power, perfect, how, x, y, "Nice hit!", f"{stroke}  {label.lower()}")
 
     def update_outgoing(self, dt):
         for kind, val in self.ball.step(dt, self.surface):
@@ -567,6 +671,7 @@ class Game:
 
     def end_rally(self, title, detail):
         self.candidate = None
+        self.net_queued = False
         self.racket.miss()
         self.fx.append({"type": "miss", "title": title})
         if self.record_this_rally:
@@ -606,6 +711,7 @@ class Game:
             "racket": list(self.racket_world) if self.racket_world else None,
             "swinging": bool(self.racket.in_swing), "tracking": self.body_seen,
             "hand": "right" if self.hand_sign > 0 else "left",
+            "playerZ": self.player_z, "atNet": self.at_net,
             "imu": {"swing": abs(self.racket.live_rate) / rk.SWING_FULL,
                     "swingTick": rk.SWING_START / rk.SWING_FULL,
                     "twist": self.racket.live_twist / rk.SPIN_FULL,
@@ -634,7 +740,7 @@ class Game:
 
     def draw_court(self, img):
         f = self.frame
-        P = lambda x, y, z: ipt(f.project(x, y, z)[0])
+        P = lambda x, y, z: ipt(f.project(x, y, z - self.player_z)[0])
         over = img.copy()
         quad = np.int32([P(-HALF_WIDTH, 0, BASELINE_Z), P(HALF_WIDTH, 0, BASELINE_Z),
                          P(HALF_WIDTH, 0, FAR_BASELINE_Z), P(-HALF_WIDTH, 0, FAR_BASELINE_Z)])
@@ -657,12 +763,13 @@ class Game:
 
     def draw_ball(self, img):
         f = self.frame
+        pz = self.player_z
         for i, p in enumerate(self.trail):
-            c, s = f.project(*p)
+            c, s = f.project(p[0], p[1], p[2] - pz)
             cv2.circle(img, ipt(c), max(1, int(2 + 3 * s * i / len(self.trail))), (0, 200, 170), -1)
         x, y, z = self.ball.pos
-        (sx, sy), _ = f.project(x, 0, z)
-        (bx, by), s = f.project(x, y, z)
+        (sx, sy), _ = f.project(x, 0, z - pz)
+        (bx, by), s = f.project(x, y, z - pz)
         r = max(4, int(BALL_RADIUS * 3 * f.ppm * s))
         cv2.ellipse(img, ipt((sx, sy)), (r, max(2, r // 3)), 0, 0, 360, (30, 30, 30), -1, cv2.LINE_AA)
         cv2.circle(img, ipt((bx, by)), r, BALL_BGR, -1, cv2.LINE_AA)
@@ -806,6 +913,14 @@ def main():
             print(f"Loaded stroke classifier {args.knn} ({len(knn.y)} swings)")
         racket = rk.Racket(dm, args.swing_axis, args.spin_axis, knn=knn)
         print("Racket connected.")
+        time.sleep(0.5)
+        pos = rk.shaft_positions(dm)
+        if any(p is not None for p in pos):
+            print("Motor shafts reporting: " + "  ".join("--" if p is None else f"{p:+.0f} deg" for p in pos)
+                  + "  (turn one a full turn after a shot to run to the net)")
+        else:
+            print("WARNING: the hub isn't reporting motor shaft positions, so turning a shaft "
+                  "can't take you to the net. Press N instead.")
 
     # 2. Camera, pose and AprilTags
     from camlib import pick_camera
@@ -840,6 +955,8 @@ def main():
             game.start()
         elif k == ord("u"):
             game.toss(time.monotonic())
+        elif k == ord("n"):
+            game.call_net()
         return True
 
     last = last_cam = time.monotonic()

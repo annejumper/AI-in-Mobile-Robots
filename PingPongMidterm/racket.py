@@ -38,6 +38,11 @@ BACKHAND_SPIN_SIGN = 1  # set to -1 if your BACKHAND topspin twist reads as slic
 SWING_MAX_S = 0.6       # a "swing" longer than this is cut off
 REFRACTORY_S = 0.06     # short: a windup is followed almost at once by the real swing
 
+# --- "run to the net": turn either motor shaft by hand -------------------------
+SHAFT_TURN_DEG = 360    # one-way turn of a shaft that sends you to the net
+SHAFT_TURN_S = 2.0      # ...within this long
+HAPTIC_SETTLE_S = 0.3   # shaft motion during a haptic buzz (and this long after) is ignored
+
 LIGHTS = {
     "orange": le.LEGO_COLOR_ORANGE, "green": le.LEGO_COLOR_GREEN,
     "blue": le.LEGO_COLOR_BLUE, "white": le.LEGO_COLOR_WHITE,
@@ -130,14 +135,63 @@ class SwingDetector:
         return None
 
 
+class ShaftTurnDetector:
+    """Turning a motor shaft by hand: the motors report their position, and a
+    swing never turns a shaft, so this can't be confused with a stroke. A
+    haptic buzz drives the shafts forward and straight back (it nets out to
+    zero); readings during one are skipped, but a turn you'd already started
+    is kept, so a buzz can't erase it."""
+
+    def __init__(self):
+        self.hist = ([], [])           # per shaft: (t, position in degrees)
+        self.turned = [0.0, 0.0]       # each shaft's one-way turn within the window (for imu_monitor)
+
+    def feed(self, t, positions, haptic_busy=False):
+        hit = False
+        for i, pos in enumerate(positions):
+            h = self.hist[i]
+            if pos is None:
+                h.clear()
+                self.turned[i] = 0.0
+                continue
+            if haptic_busy:
+                continue
+            h.append((t, pos))
+            while h and t - h[0][0] > SHAFT_TURN_S:
+                h.pop(0)
+            self.turned[i] = max((abs(pos - p) for _, p in h), default=0.0)
+            if self.turned[i] >= SHAFT_TURN_DEG:
+                hit = True
+        if hit:
+            for h in self.hist:
+                h.clear()
+        return hit
+
+
+def shaft_positions(dm):
+    """Both shafts' cumulative positions (degrees), None until the hub reports them."""
+    out = []
+    for m in getattr(dm, "motor", None) or ():
+        pos = getattr(m, "position", None)
+        out.append(None if pos is None or (isinstance(pos, float) and math.isnan(pos)) else float(pos))
+    return out
+
+
 class Racket:
     """Wraps a connected doubleMotor: swing events in, haptic feedback out."""
 
     def __init__(self, dm, swing_axis=SWING_AXIS, spin_axis=SPIN_AXIS, knn=None):
         self.dm = dm
+        try:   # stopped motors COAST, so you can turn a shaft by hand (brake/hold would fight you)
+            dm.movement_set_end_state(le.MOTOR_END_STATE_COAST)
+        except Exception as e:
+            print(f"[racket] couldn't set the motors to coast: {e}")
         self.detector = SwingDetector(swing_axis, spin_axis)
+        self.shafts = ShaftTurnDetector()
+        self._haptic_until = 0.0         # shaft motion before this is the haptics, not you
         self.knn = knn
         self.events = queue.Queue()
+        self.net_calls = queue.Queue()
         self._cmds = queue.Queue()
         self._running = True
         self.light_name = "white"
@@ -157,8 +211,17 @@ class Racket:
     def live_twist(self):
         return self.detector.twist
 
-    def serve_mode(self, on):
+    def any_axis_swings(self, on):
+        """Serves, volleys and overheads don't swing about the pitch axis."""
         self.detector.any_axis = on
+
+    def poll_net_call(self):
+        """Did you turn a shaft (run to the net) since the last call?"""
+        n = 0
+        while not self.net_calls.empty():
+            self.net_calls.get_nowait()
+            n += 1
+        return n
 
     def poll_swings(self):
         out = []
@@ -175,7 +238,10 @@ class Racket:
                 gyro = (imu.gyroscopeX, imu.gyroscopeY, imu.gyroscopeZ)
                 accel = (imu.accelerometerX, imu.accelerometerY, imu.accelerometerZ)
                 if not any(math.isnan(v) for v in gyro):
-                    ev = self.detector.feed(time.monotonic(), gyro, accel)
+                    now = time.monotonic()
+                    if self.shafts.feed(now, shaft_positions(self.dm), now < self._haptic_until):
+                        self.net_calls.put(now)
+                    ev = self.detector.feed(now, gyro, accel)
                     if ev:
                         self.events.put(ev)
             time.sleep(0.002)
@@ -186,10 +252,12 @@ class Racket:
             fn = self._cmds.get()
             if fn is None:
                 break
+            self._haptic_until = float("inf")     # the motors are being driven: not you
             try:
                 fn()
             except Exception as e:
                 print(f"[racket] hub command failed: {e}")
+            self._haptic_until = time.monotonic() + HAPTIC_SETTLE_S
 
     def _do(self, fn):
         if self._cmds.qsize() < 4:  # never let feedback pile up behind the game
@@ -212,6 +280,10 @@ class Racket:
     def light(self, name, pattern=le.LIGHT_PATTERN_SOLID):
         self.light_name = name
         self._do(lambda: self.dm.light_color(LIGHTS[name], pattern=pattern))
+
+    def approach(self):
+        """Two quick taps: you're running in."""
+        self._do(lambda: (self._pulse(70, 30), time.sleep(0.05), self._pulse(70, 30)))
 
     def bounce_tick(self):
         """Tiny tap when the incoming ball bounces -- a timing cue you can feel."""
@@ -306,7 +378,9 @@ class SimRacket:
         out, self.events = self.events, []
         return out
 
-    def serve_mode(self, on): pass
+    def any_axis_swings(self, on): pass
+    def poll_net_call(self): return 0
+    def approach(self): pass
     def light(self, name, pattern=None): pass
     def bounce_tick(self): pass
     def hit(self, power, perfect, spin_label): pass

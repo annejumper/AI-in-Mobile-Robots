@@ -2,10 +2,11 @@
 Tennis physics for T-anne-is: court geometry, court surfaces, player
 levels and ball flight (gravity + Magnus effect from spin + surface bounce).
 
-World coordinates (meters), all measured from the player:
+World coordinates (meters), all measured from the player's baseline spot:
     x  sideways   (+ = player's right)
     y  height     (0 = ground)
-    z  depth      (0 = the player's contact plane, + = toward the opponent)
+    z  depth      (0 = the player's contact plane at the baseline, + = toward
+                   the opponent; at the net the player hits at z = NET_PLAYER_Z)
 """
 
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ HALF_WIDTH = 4.115
 NET_HEIGHT = 0.914
 NET_MARGIN = 0.10     # how far over the net every shot is aimed
 HIP_HEIGHT = 0.95     # used to map ball heights onto the player's body
+NET_PLAYER_Z = NET_Z - 2.4   # where you volley from after running up to the net
 
 
 @dataclass(frozen=True)
@@ -120,15 +122,29 @@ class Ball:
         return events
 
 
-def predict_contact(ball, surface, max_t=6.0):
+def predict_contact(ball, surface, max_t=6.0, plane_z=0.0):
     """Fly a copy of an incoming ball until it reaches the player's contact
-    plane (z = 0). Returns (x, y, seconds_from_now, bounces_before_contact)."""
+    plane (z = plane_z). Returns (x, y, seconds_from_now, bounces_before_contact)."""
     b = ball.copy()
     t = 0.0
-    while b.pos[2] > 0 and t < max_t:
+    while b.pos[2] > plane_z and t < max_t:
         b.step(0.004, surface, h=0.004)
         t += 0.004
     return b.pos[0], b.pos[1], t, b.bounces
+
+
+def landing(ball, surface, max_t=4.0):
+    """Where (x, z) a ball in flight will first bounce."""
+    b = ball.copy()
+    t = 0.0
+    while not b.bounces and t < max_t:
+        b.step(0.01, surface, h=0.004)
+        t += 0.01
+    return b.pos[0], b.pos[2]
+
+
+def landing_z(ball, surface, max_t=4.0):
+    return landing(ball, surface, max_t)[1]
 
 
 REACH_LO, REACH_HI = 0.30, 1.75   # contact heights a person can actually hit
@@ -182,21 +198,22 @@ def shot_speed(power):
     return 12.0 + 22.0 * power
 
 
-def launch_return(x, y, power, spin, side, rng, aim_z=20.0):
-    """The player's shot from contact point (x, y). The 'racket face' is
-    aimed to land at aim_z for this speed and spin, but always clears the
-    net by NET_MARGIN -- so a fast, flat ball struck from low down has to
-    go up to clear the net and then sails LONG. Topspin pulls it back in."""
+def launch_return(x, y, power, spin, side, rng, aim_z=20.0, z0=0.0):
+    """The player's shot from contact point (x, y) on the plane z0. The
+    'racket face' is aimed to land at aim_z for this speed and spin, but
+    always clears the net by NET_MARGIN -- so a fast, flat ball struck from
+    low down has to go up to clear the net and then sails LONG. Topspin
+    pulls it back in."""
     v = shot_speed(power)
     h0 = max(y, 0.15)
     g_eff = max(G + MAGNUS * spin * v / 25.0, MIN_G_EFF)
-    t = aim_z / v
+    t = (aim_z - z0) / v
     vy = (0.5 * g_eff * t ** 2 - h0) / t
-    t_n = NET_Z / v
+    t_n = (NET_Z - z0) / v
     vy = max(vy, (NET_HEIGHT + NET_MARGIN - h0 + 0.5 * g_eff * t_n ** 2) / t_n)
     aim_x = float(np.clip(-0.8 * x + rng.uniform(-2.5, 2.5), -3.3, 3.3))
-    vx = (aim_x - x) / (FAR_BASELINE_Z / v)
-    return Ball((x, h0, 0.0), (vx, vy, v), spin, side)
+    vx = (aim_x - x) / ((FAR_BASELINE_Z - z0) / v)
+    return Ball((x, h0, z0), (vx, vy, v), spin, side)
 
 
 def in_service_box(x, z):
@@ -220,3 +237,31 @@ def launch_serve(x, y, power, spin, rng):
     aim_x = rng.choice([-1, 1]) * rng.uniform(0.6, 3.2)
     vx = (aim_x - x) / t
     return Ball((x, h0, 0.0), (vx, vy, v), spin)
+
+
+def launch_net_shot(level, rng, speed_mult, z0, x_target, lob, plane_z=NET_PLAYER_Z):
+    """The opponent's shot at a player who has come to the net.
+    A VOLLEY ball is driven at you to arrive in the air (no bounce) at chest
+    height; a LOB floats high over you and drops through the overhead zone.
+    Both fly a plain parabola (no spin), so the contact point is exact.
+    Returns (ball, (x, y) where it crosses your contact plane)."""
+    h0 = 1.0
+    x0 = rng.uniform(-2.5, 2.5)
+    if lob:
+        apex = rng.uniform(5.0, 6.0)
+        y_c = rng.uniform(2.1, 2.4)           # overhead height, on the way down
+        vy = np.sqrt(2 * G * (apex - h0))
+        t = vy / G + np.sqrt(2 * (apex - y_c) / G)
+        vz = (z0 - plane_z) / t
+    else:
+        vz = level.speed * speed_mult
+        t = (z0 - plane_z) / vz
+        y_c = rng.uniform(0.9, 1.5)
+        t_n = (z0 - NET_Z) / vz
+        while True:                           # never into the net
+            vy = (y_c - h0 + 0.5 * G * t ** 2) / t
+            if h0 + vy * t_n - 0.5 * G * t_n ** 2 >= NET_HEIGHT + NET_MARGIN:
+                break
+            y_c += 0.05
+    vx = (x_target - x0) / t
+    return Ball((x0, h0, z0), (vx, vy, -vz)), (x_target, y_c)

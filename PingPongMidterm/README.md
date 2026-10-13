@@ -45,10 +45,17 @@ and swing (rotate the hub about its **pitch** axis).
 - Big flat swings at low balls fly **long**. Topspin brings them down.
 
 **Serve:** every rally starts with your serve. The ball sits in your free hand. Raise that hand
-above your head to toss (or press **U**). Then reach up and swing as the ball drops through the
-ring overhead. Hit it down into the opponent's service box. Net, long, wide or a miss is a
-**fault**. Two faults in a row is a **double fault** and ends the rally. Let the toss drop
-without swinging to toss again.
+above your head to toss (or press **U**). Then swing as the ball drops through the big ring
+overhead. Serving is meant to be easy. Every serve you hit lands in the service box. The only
+fault is missing the ball by a lot on your first serve, and on the second serve any swing hits
+it. Let the toss drop without swinging to toss again.
+
+**Net play:** after you hit, **turn either motor shaft one full turn** with your fingers to run
+up to the net (or press **N**). Swings never turn the shafts, so this can't trigger by accident.
+The opponent then hits at you on the fly. A ring at chest height is a **forehand** or
+**backhand volley**: punch it before it bounces. A ring above your head is a **lob**: smash an
+**overhead** as it drops. You stay at the net until the rally ends. `imu_monitor.py` shows both
+shaft angles live. Change `SHAFT_TURN_DEG` in `racket.py` to make it a half turn, for example.
 
 **Haptic tip:** press a LEGO piece onto one motor shaft so it sits off-center. That makes it a
 vibration motor (an eccentric rotating mass, like a phone's), and the hit pulses feel much stronger.

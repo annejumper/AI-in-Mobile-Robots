@@ -472,6 +472,7 @@ function handleFx(fx) {
       case 'net': thock({ freq: 80, gain: 0.25, noise: 1, nfreq: 300, dur: 0.15 }); break;
       case 'miss': tone(330, 0.4, 0.14, 'triangle', 0, 110); break;
       case 'fault': tone(330, 0.25, 0.12, 'triangle', 0, 220); break;
+      case 'approach': [392, 523, 659].forEach((f, i) => tone(f, 0.08, 0.1, 'square', i * 0.06)); break;
       case 'record':
         [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 0.13, 'triangle', i * 0.1));
         applause();
@@ -507,7 +508,7 @@ function connect() {
 }
 connect();
 
-const KEYS = new Set(['t', 'b', 'f', '1', '2', '3', 'c', 'g', 'h', 's', 'u', 'q']);
+const KEYS = new Set(['t', 'b', 'f', '1', '2', '3', 'c', 'g', 'h', 's', 'u', 'n', 'q']);
 window.addEventListener('keydown', e => {
   audio();
   const k = e.key === ' ' ? 'space' : e.key.toLowerCase();
@@ -518,6 +519,7 @@ window.addEventListener('keydown', e => {
 // --- per-frame animation -------------------------------------------------------------------------
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
+let camZ = 0;   // the camera follows you up to the net (smoothed)
 
 function animate() {
   requestAnimationFrame(animate);
@@ -550,7 +552,7 @@ function animate() {
   // racket follows the player's hand (from MediaPipe pose), on the contact plane z = 0
   const rd = racket.userData;
   if (s && s.racket && s.tracking) {
-    tmp.copy(V(s.racket[0], s.racket[1], 0));
+    tmp.copy(V(s.racket[0], s.racket[1], s.playerZ));
     if (!racket.visible) racket.position.copy(tmp);
     racket.position.lerp(tmp, 0.5);
     racket.visible = true;
@@ -573,7 +575,7 @@ function animate() {
   // ring: where the ball will be; turns green when your racket is in it
   if (s && s.ghost) {
     ring.visible = true;
-    ring.position.copy(V(s.ghost[0], s.ghost[1], 0));
+    ring.position.copy(V(s.ghost[0], s.ghost[1], s.playerZ));
     ring.scale.setScalar(s.hitRadius);
     const inside = s.racket && Math.hypot(s.racket[0] - s.ghost[0], s.racket[1] - s.ghost[1]) <= s.hitRadius;
     ringMat.color.setHex(inside ? 0x5fdc7a : 0xffffff);
@@ -595,11 +597,12 @@ function animate() {
 
   // camera: steady, a touch of parallax with your racket, a kick on big hits
   shake *= Math.pow(0.002, dt);
+  camZ += ((s ? s.playerZ : 0) - camZ) * Math.min(1, dt * 6);
   camera.position.set(
     CAM_BASE.x + (racket.visible ? racket.position.x * 0.12 : 0) + (Math.random() - 0.5) * shake,
     CAM_BASE.y + (Math.random() - 0.5) * shake,
-    CAM_BASE.z);
-  camera.lookAt(LOOK_AT);
+    CAM_BASE.z - camZ);
+  camera.lookAt(LOOK_AT.x, LOOK_AT.y, LOOK_AT.z - camZ);
 
   composer.render(dt);
 }
