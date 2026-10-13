@@ -90,6 +90,7 @@ class SwingDetector:
         self.other_axis = ({0, 1, 2} - {self.axis, self.spin_axis}).pop()
         self.rate = 0.0
         self.twist = 0.0
+        self.any_axis = False   # serve: an overhead swing turns the hub on other axes than pitch
         self._swing = None
         self._quiet_until = 0.0
 
@@ -99,6 +100,8 @@ class SwingDetector:
 
     def feed(self, t, gyro, accel):
         rate = float(gyro[self.axis])
+        if self.any_axis:      # count the total turning speed (unsigned) as the swing
+            rate = math.sqrt(sum(float(g) ** 2 for g in gyro))
         twist = float(gyro[self.spin_axis])
         other = float(gyro[self.other_axis])
         self.rate, self.twist = rate, twist
@@ -153,6 +156,9 @@ class Racket:
     @property
     def live_twist(self):
         return self.detector.twist
+
+    def serve_mode(self, on):
+        self.detector.any_axis = on
 
     def poll_swings(self):
         out = []
@@ -300,6 +306,7 @@ class SimRacket:
         out, self.events = self.events, []
         return out
 
+    def serve_mode(self, on): pass
     def light(self, name, pattern=None): pass
     def bounce_tick(self): pass
     def hit(self, power, perfect, spin_label): pass

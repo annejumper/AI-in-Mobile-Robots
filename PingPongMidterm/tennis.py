@@ -13,7 +13,10 @@ Your racket is a LEGO Education Double Motor (Connection Card 6065).
 
 AprilTags (36h11):  0 = START    1 = Club   2 = Varsity   3 = Pro
                     4 = Clay     5 = Grass  6 = Hard court
-Keys: Q quit | 1/2/3 level | C/G/H surface | S start
+SERVE: you start with the ball. Raise your free hand to toss it, then hit
+       it on the way down into the opponent's service box (2 faults = over).
+
+Keys: Q quit | 1/2/3 level | C/G/H surface | S start | U toss
       (--sim, no hub: SPACE flat, T topspin, B slice, F full power)
 
 Run:  .venv/bin/python tennis.py            (add --sim to play without the hub)
@@ -25,6 +28,7 @@ from lelib import doubleMotor
 DOUBLE_MOTOR_CARD_SERIAL = 6065
 
 import argparse
+import math
 import os
 import random
 import time
@@ -34,9 +38,9 @@ import cv2
 import numpy as np
 
 import racket as rk
-from court import (BALL_RADIUS, BASELINE_Z, FAR_BASELINE_Z, HALF_WIDTH, LEVELS, NET_HEIGHT,
-                   NET_Z, OPPONENT_Z, SERVICE_LINE, SURFACES, launch_incoming, launch_return,
-                   shot_speed)
+from court import (BALL_RADIUS, BASELINE_Z, FAR_BASELINE_Z, G, HALF_WIDTH, LEVELS, NET_HEIGHT,
+                   NET_Z, OPPONENT_Z, SERVICE_LINE, SURFACES, Ball, in_service_box, launch_incoming,
+                   launch_return, launch_serve, shot_speed)
 from vision import SKELETON, BodyFrame, PoseTracker, TagReader
 
 TOPIC = "ME193/Rogers/AnneJumper"
@@ -50,6 +54,16 @@ VIEW_LAG_S = 0.06         # the ball you SEE is ~this far behind the simulation 
                           # so judge your swing against where the ball appeared to be
 HIT_NOW_POWER = 0.45      # weaker candidates wait until the ball has passed, in case a real swing follows
 EARLY_FLASH_POWER = 0.5   # only scold 'too early' for a real swing, not a windup
+
+# The serve
+TOSS_HAND_Y = 1.75        # raising your free hand above this (m, about head height) tosses the ball
+TOSS_PEAK = 3.0           # the toss rises to this height (m)
+TOSS_X = 0.3              # the toss drifts this far to your racket side, like a real one
+SERVE_CONTACT_Y = 2.1     # where the "hit here" ring sits: full reach overhead (m)
+SERVE_REACH = 1.25        # serve hit radius = the level's hit radius * this (overheads are hard to aim)
+SERVE_LOW = 1.2           # a ball that has dropped below this is past hitting
+SERVE_WINDOW = (-0.3, 0.1)  # look for the racket's closest pass this long before/after the swing peak (s)
+WINDUP_FRAC = 0.6         # swings while the toss is still in the first 60% of its rise are the windup
 
 WHITE, BLACK = (255, 255, 255), (0, 0, 0)
 YELLOW, GREEN, RED, CYAN = (0, 230, 255), (90, 220, 90), (70, 70, 240), (230, 200, 60)
@@ -73,6 +87,17 @@ def interp(hist, t):
             return tuple(a + f * (b - a) for a, b in zip(prev[1:], cur[1:]))
         prev = cur
     return hist[-1][1:]
+
+
+def off_by(dx, dy):
+    """Which way the racket missed the ball by (dx, dy) m (+dy = racket above it)."""
+    if abs(dy) >= abs(dx):
+        return f"too {'high' if dy > 0 else 'low'}"
+    return f"too far {'right' if dx > 0 else 'left'}"
+
+
+def spin_label(topspin):
+    return "TOPSPIN" if topspin > 0.15 else "SLICE" if topspin < -0.15 else "FLAT"
 
 
 def text(img, s, org, scale=0.7, color=WHITE, thick=1, center=False):
@@ -151,6 +176,12 @@ class Game:
         self.fx = []                          # one-shot events for the 3D view (sounds, dust)
         self.body_seen = False
         self.racket_world = None              # racket hand in world meters, for the 3D view
+        self.free_world = None                # free (tossing) hand in world meters
+        self.serve_faults = 0                 # faults on this serve (2 = double fault)
+        self.serving = False                  # the ball in flight is your serve
+        self.tossed = False
+        self.toss_armed = False               # free hand was seen low first, so a raised hand is a toss
+        self.toss_t, self.toss_up = 0.0, 0.0  # when the toss left your hand, and its rise time
         self._count = 4
         self.racket.light(self.surface.light)
         self.board.post(self.record)
@@ -163,9 +194,21 @@ class Game:
     def surface(self):
         return SURFACES[self.surface_key]
 
+    @property
+    def hit_radius(self):
+        return self.level.hit_radius * (SERVE_REACH if self.state == "SERVE" else 1.0)
+
+    @property
+    def ring(self):
+        """The "hit here" ring (x, y), if it's showing."""
+        if (self.state == "INCOMING" and self.show_ghost) or (self.state == "SERVE" and self.tossed):
+            return self.ghost
+        return None
+
     def set_state(self, s):
         self.state = s
         self.state_t = time.monotonic()
+        self.racket.serve_mode(s == "SERVE")
 
     def flash(self, title, detail="", color=WHITE, secs=1.2):
         self.msg = (title, detail, color, time.monotonic() + secs)
@@ -192,6 +235,7 @@ class Game:
     def start(self):
         if self.state in ("MENU", "OVER"):
             self.streak = 0
+            self.serve_faults = 0
             self.record_this_rally = False
             self.ball = None
             self.set_state("COUNTDOWN")
@@ -205,6 +249,7 @@ class Game:
         if body is not None and body.racket is not None:
             self.racket_hist.append((t, body.racket[0], body.racket[1], body.torso_px))
             self.racket_world = self.frame.to_world(*body.racket)
+        self.free_world = self.frame.to_world(*body.free) if body is not None and body.free else None
         for sw in swings:
             self.last_swing = sw
 
@@ -215,7 +260,13 @@ class Game:
                 self.racket.countdown(max(n, 0))
                 self.fx.append({"type": "count", "n": max(n, 0)})
             if n <= 0:
-                self.serve(OPPONENT_Z)
+                self.start_serve()
+        elif self.state == "SERVE":
+            self.update_serve(t, dt, swings)
+        elif self.state == "FAULT":
+            self.ball.step(dt, self.surface)   # watch the fault land, then serve again
+            if t - self.state_t > 1.6:
+                self.start_serve()
         elif self.state == "INCOMING":
             self.update_incoming(t, dt, swings)
         elif self.state == "OUTGOING":
@@ -226,7 +277,7 @@ class Game:
             if t - self.state_t > 2.5:
                 self.set_state("MENU")
 
-    def serve(self, z0):
+    def opponent_shot(self, z0):
         side = self.rng.choice([1, -1])
         x_target = side * self.rng.uniform(0.35, 0.75)
         mult = min(1.0 + 0.03 * self.streak, 1.35)   # rallies heat up
@@ -238,6 +289,132 @@ class Game:
         self.fx.append({"type": "oppHit", "pos": self.ball.pos.tolist()})
         self.set_state("INCOMING")
 
+    # --- your serve ---------------------------------------------------------------
+    def hand_spot(self):
+        """Where the ball sits before the toss: in your free hand."""
+        if self.free_world:
+            return self.free_world
+        return -self.hand_sign * 0.35, 1.05
+
+    def start_serve(self):
+        self.ball = Ball((*self.hand_spot(), 0.0), (0.0, 0.0, 0.0))
+        self.tossed = self.toss_armed = self.serving = False
+        self.candidate = self.ghost = None
+        self.ball_hist.clear()
+        self.trail.clear()
+        self.flash("Second serve" if self.serve_faults else "Your serve",
+                   "raise your free hand to toss, hit it on the way down", CYAN, 60)
+        self.set_state("SERVE")
+
+    def toss(self, t):
+        """Launch the ball straight up from your hand, drifting to your racket
+        side, so it peaks at TOSS_PEAK and falls through SERVE_CONTACT_Y."""
+        if self.state != "SERVE" or self.tossed:
+            return
+        x0, y0 = self.ball.pos[:2]
+        peak = max(TOSS_PEAK, y0 + 0.6)
+        vy = math.sqrt(2 * G * (peak - y0))
+        self.toss_t, self.toss_up = t, vy / G
+        t_contact = self.toss_up + math.sqrt(2 * (peak - SERVE_CONTACT_Y) / G)
+        x_to = self.hand_sign * TOSS_X
+        self.ball = Ball((x0, y0, 0.0), ((x_to - x0) / t_contact, vy, 0.0))
+        self.ghost = (x_to, SERVE_CONTACT_Y)
+        self.tossed = True
+        self.msg = None
+
+    def update_serve(self, t, dt, swings):
+        if not self.tossed:
+            self.ball.pos[:2] = self.hand_spot()
+            if self.free_world:
+                if self.free_world[1] < TOSS_HAND_Y:
+                    self.toss_armed = True
+                elif self.toss_armed:
+                    self.toss(t)
+            return
+        self.ball.step(dt, self.surface)
+        self.ball_hist.append((t, *self.ball.pos))
+        self.trail.append(self.ball.pos.copy())
+        for sw in swings:
+            self.consider_serve(sw)
+
+        c = self.candidate
+        if c and not self.racket.in_swing:
+            settled = t - c[0].t_end > SETTLE_S
+            if (settled and c[0].power >= HIT_NOW_POWER) or self.ball.pos[1] < SERVE_LOW:
+                self.candidate = None
+                self.judge_serve(*c)
+        elif not c and self.ball.pos[1] < SERVE_LOW and self.ball.vel[1] < 0:
+            self.start_serve()   # you let it drop: toss again, no fault
+            self.flash("Re-toss", "hit the ball on the way down", CYAN, 60)
+
+    def consider_serve(self, sw):
+        """Swings while the toss is still rising are your windup; after that,
+        the strongest swing is the one that counts (like consider())."""
+        if sw.t_peak - self.toss_t < WINDUP_FRAC * self.toss_up:
+            return
+        p = interp(self.ball_hist, sw.t_peak - VIEW_LAG_S)
+        if p is None:
+            return
+        if self.candidate is None or sw.power > self.candidate[0].power:
+            self.candidate = (sw, p)
+
+    def judge_serve(self, sw, p):
+        """Was the racket on the ball? A fast overhead arm blurs on camera and
+        the hub's fastest instant isn't exactly the contact, so use the
+        racket's closest pass to the ball around the swing (world meters)."""
+        best = None   # (distance, dx, dy, ball position)
+        for t, sx, sy, _ in self.racket_hist:
+            if not SERVE_WINDOW[0] <= t - sw.t_peak <= SERVE_WINDOW[1]:
+                continue
+            b = interp(self.ball_hist, t - VIEW_LAG_S)
+            if b is None:
+                continue
+            rx, ry = self.frame.to_world(sx, sy)
+            d = math.hypot(rx - b[0], ry - b[1])
+            if best is None or d < best[0]:
+                best = (d, rx - b[0], ry - b[1], b)
+        print(f"[serve] power {sw.power * 100:3.0f}%  " + (
+            f"closest {best[0] * 100:.0f} cm (ring {self.hit_radius * 100:.0f} cm)  "
+            f"{off_by(best[1], best[2])}  ball at {best[3][1]:.2f} m" if best else "racket not seen"))
+        if best is None:
+            self.fault("Can't see your racket hand", "step back so your arm fits in the camera overhead")
+            return
+        d, dx, dy, b = best
+        if d > self.hit_radius:
+            self.fault("Missed the toss!", f"racket {off_by(dx, dy)}")
+            return
+        self.hit_serve(sw, b[0], b[1], perfect=d < 0.35 * self.hit_radius)
+
+    def hit_serve(self, sw, x, y, perfect):
+        """Serves are flat: the overhead swing itself turns the hub on the
+        twist axis, so the twist can't be read as spin here."""
+        topspin, power = 0.0, sw.power
+        label = spin_label(topspin)
+        self.racket.hit(power, perfect, label)
+        self.ball = launch_serve(x, y, power, topspin, self.rng)
+        self.trail.clear()
+        self.last_shot = dict(power=power, speed=shot_speed(power), label=label, spin=topspin,
+                              how="yaw twist", height=y, perfect=perfect, stroke="serve")
+        self.flash("PERFECT!" if perfect else "Serve!", f"{label.lower()} serve", GREEN, 0.9)
+        self.fx.append({"type": "hit", "pos": [x, y, 0.0], "power": power, "perfect": perfect,
+                        "label": label, "stroke": "serve"})
+        self.serving = True
+        self.ghost = None
+        self.set_state("OUTGOING")
+
+    def fault(self, title, detail):
+        self.serving = False
+        self.candidate = self.ghost = None
+        self.serve_faults += 1
+        if self.serve_faults >= 2:
+            self.end_rally("Double fault!", detail)
+            return
+        self.racket.miss()
+        self.fx.append({"type": "fault", "title": title})
+        self.flash(title, f"{detail} - second serve", RED, 1.6)
+        self.set_state("FAULT")
+
+    # --- the opponent's ball ------------------------------------------------------
     def update_incoming(self, t, dt, swings):
         for kind, _ in self.ball.step(dt, self.surface):
             if kind == "bounce":
@@ -300,14 +477,11 @@ class Game:
         dx = (r[0] - bx) / self.frame.ppm
         dy = (by - r[1]) / self.frame.ppm          # + means racket above the ring
         if np.hypot(dx, dy) > lv.hit_radius:
-            if abs(dy) >= abs(dx):
-                where = f"too {'high' if dy > 0 else 'low'}"
-                if dy > 0 and self.surface_key == "grass":
-                    where += " - grass stays low!"
-                elif dy < 0 and self.surface_key == "clay":
-                    where += " - clay kicks up!"
-            else:
-                where = f"too far {'right' if dx > 0 else 'left'}"
+            where = off_by(dx, dy)
+            if abs(dy) >= abs(dx) and dy > 0 and self.surface_key == "grass":
+                where += " - grass stays low!"
+            elif abs(dy) >= abs(dx) and dy < 0 and self.surface_key == "clay":
+                where += " - clay kicks up!"
             self.end_rally("Missed!", f"racket {where}")
             return
         self.hit(sw, x, y, z)
@@ -326,8 +500,7 @@ class Game:
             sw.label = f"{stroke}_{kind}"
             d = {"topspin": 1, "slice": -1}.get(kind, 0)
             topspin, how = d * max(abs(sw.spin), 0.4), "KNN"
-        label = "TOPSPIN" if topspin > 0.15 else "SLICE" if topspin < -0.15 else "FLAT"
-        return topspin, label, how
+        return topspin, spin_label(topspin), how
 
     def hit(self, sw, x, y, z):
         perfect = bool(abs(z) < PERFECT_Z)
@@ -357,7 +530,19 @@ class Game:
                 self.fx.append({"type": "bounce", "pos": self.ball.pos.tolist()})
             if kind == "net" and val < NET_HEIGHT:
                 self.fx.append({"type": "net", "pos": self.ball.pos.tolist()})
-                self.end_rally("Into the net!", "lift it more - less topspin from low balls")
+                if self.serving:
+                    self.fault("Net!", "less topspin, or hit it a little higher")
+                else:
+                    self.end_rally("Into the net!", "lift it more - less topspin from low balls")
+            elif kind == "bounce" and self.ball.bounces == 1 and self.serving:
+                if in_service_box(self.ball.pos[0], val):
+                    self.serving = False
+                    self.serve_faults = 0
+                    self.rally_point()
+                elif val > NET_Z + SERVICE_LINE:
+                    self.fault("Fault!", "long - reach up and hit it higher, or swing softer")
+                else:
+                    self.fault("Fault!", "wide")
             elif kind == "bounce" and self.ball.bounces == 1:
                 if val > FAR_BASELINE_Z:
                     tip = ("add TOPSPIN to bring a big swing down" if self.last_shot["label"] != "TOPSPIN"
@@ -367,7 +552,7 @@ class Game:
                     self.rally_point()
         self.trail.append(self.ball.pos.copy())
         if self.state == "OUTGOING" and (self.ball.pos[2] >= OPPONENT_Z or self.ball.bounces >= 2):
-            self.serve(max(self.ball.pos[2], NET_Z + 6))
+            self.opponent_shot(max(self.ball.pos[2], NET_Z + 6))
 
     def rally_point(self):
         self.streak += 1
@@ -400,12 +585,10 @@ class Game:
         now = time.monotonic()
         lv, sf = self.level, self.surface
         ball = None
-        if self.ball is not None and self.state in ("INCOMING", "OUTGOING", "OVER"):
+        if self.ball is not None and self.state in ("SERVE", "FAULT", "INCOMING", "OUTGOING", "OVER"):
             ball = {"pos": self.ball.pos.tolist(), "vel": self.ball.vel.tolist(),
                     "spin": self.ball.spin, "incoming": self.state == "INCOMING"}
-        ghost = None
-        if self.state == "INCOMING" and self.show_ghost and self.ghost:
-            ghost = [float(self.ghost[0]), float(self.ghost[1])]
+        ghost = [float(self.ring[0]), float(self.ring[1])] if self.ring else None
         msg = None
         if self.msg and now < self.msg[3]:
             msg = {"title": self.msg[0], "detail": self.msg[1],
@@ -416,7 +599,7 @@ class Game:
             "state": self.state,
             "countdown": max(0, 3 - int(now - self.state_t)) if self.state == "COUNTDOWN" else None,
             "surface": self.surface_key, "surfaceName": sf.name, "blurb": sf.blurb,
-            "level": self.level_id, "levelName": lv.name, "speed": lv.speed, "hitRadius": lv.hit_radius,
+            "level": self.level_id, "levelName": lv.name, "speed": lv.speed, "hitRadius": self.hit_radius,
             "streak": self.streak, "record": self.record, "topic": self.board.topic,
             "mqtt": self.board.client is not None,
             "ball": ball, "ghost": ghost,
@@ -438,12 +621,12 @@ class Game:
     # --- drawing (OpenCV view, and the webcam inset) ------------------------------
     def draw(self, img, body, tags):
         self.draw_court(img)
-        if self.ball is not None and self.state in ("INCOMING", "OUTGOING", "OVER"):
+        if self.ball is not None and self.state in ("SERVE", "FAULT", "INCOMING", "OUTGOING", "OVER"):
             self.draw_ball(img)
-        if self.state == "INCOMING" and self.show_ghost and self.ghost:
-            c = ipt(self.frame.to_screen(*self.ghost))
-            cv2.circle(img, c, int(self.level.hit_radius * self.frame.ppm), WHITE, 2, cv2.LINE_AA)
-            text(img, "hit here", (c[0], c[1] - int(self.level.hit_radius * self.frame.ppm) - 12),
+        if self.ring:
+            c = ipt(self.frame.to_screen(*self.ring))
+            cv2.circle(img, c, int(self.hit_radius * self.frame.ppm), WHITE, 2, cv2.LINE_AA)
+            text(img, "hit here", (c[0], c[1] - int(self.hit_radius * self.frame.ppm) - 12),
                  0.55, WHITE, center=True)
         self.draw_body(img, body)
         self.draw_tags(img, tags)
@@ -497,9 +680,9 @@ class Game:
         if body.racket:
             swinging = self.racket.in_swing
             col = RED if swinging else WHITE
-            if self.state == "INCOMING" and self.show_ghost and self.ghost:
-                g = self.frame.to_screen(*self.ghost)
-                if np.hypot(body.racket[0] - g[0], body.racket[1] - g[1]) <= self.level.hit_radius * self.frame.ppm:
+            if self.ring:
+                g = self.frame.to_screen(*self.ring)
+                if np.hypot(body.racket[0] - g[0], body.racket[1] - g[1]) <= self.hit_radius * self.frame.ppm:
                     col = GREEN if not swinging else RED
             cv2.circle(img, ipt(body.racket), 18, col, 3, cv2.LINE_AA)
             cv2.circle(img, ipt(body.racket), 5, col, -1, cv2.LINE_AA)
@@ -655,6 +838,8 @@ def main():
             game.choose(surface={"c": "clay", "g": "grass", "h": "hard"}[chr(k)])
         elif k == ord("s"):
             game.start()
+        elif k == ord("u"):
+            game.toss(time.monotonic())
         return True
 
     last = last_cam = time.monotonic()

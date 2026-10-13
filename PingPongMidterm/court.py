@@ -197,3 +197,26 @@ def launch_return(x, y, power, spin, side, rng, aim_z=20.0):
     aim_x = float(np.clip(-0.8 * x + rng.uniform(-2.5, 2.5), -3.3, 3.3))
     vx = (aim_x - x) / (FAR_BASELINE_Z / v)
     return Ball((x, h0, 0.0), (vx, vy, v), spin, side)
+
+
+def in_service_box(x, z):
+    """Did a serve's first bounce land in one of the opponent's service boxes?"""
+    return NET_Z < z <= NET_Z + SERVICE_LINE and abs(x) <= HALF_WIDTH
+
+
+def launch_serve(x, y, power, spin, rng):
+    """The player's serve from the toss contact point (x, y), hit DOWN into
+    the opponent's service boxes. Like launch_return, the face is aimed at the
+    box for this speed and spin but always clears the net by NET_MARGIN -- so
+    a big flat serve from low contact sails LONG. Reach up, or add topspin."""
+    v = shot_speed(power)
+    h0 = max(y, 0.15)
+    g_eff = max(G + MAGNUS * spin * v / 25.0, MIN_G_EFF)
+    aim_z = NET_Z + rng.uniform(0.55, 0.85) * SERVICE_LINE
+    t = aim_z / v
+    vy = (0.5 * g_eff * t ** 2 - h0) / t
+    t_n = NET_Z / v
+    vy = max(vy, (NET_HEIGHT + NET_MARGIN - h0 + 0.5 * g_eff * t_n ** 2) / t_n)
+    aim_x = rng.choice([-1, 1]) * rng.uniform(0.6, 3.2)
+    vx = (aim_x - x) / t
+    return Ball((x, h0, 0.0), (vx, vy, v), spin)

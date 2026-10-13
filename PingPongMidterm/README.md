@@ -44,6 +44,12 @@ and swing (rotate the hub about its **pitch** axis).
 - If topspin reads as slice, set `SPIN_SIGN = -1` in `racket.py`.
 - Big flat swings at low balls fly **long**. Topspin brings them down.
 
+**Serve:** every rally starts with your serve. The ball sits in your free hand. Raise that hand
+above your head to toss (or press **U**). Then reach up and swing as the ball drops through the
+ring overhead. Hit it down into the opponent's service box. Net, long, wide or a miss is a
+**fault**. Two faults in a row is a **double fault** and ends the rally. Let the toss drop
+without swinging to toss again.
+
 **Haptic tip:** press a LEGO piece onto one motor shaft so it sits off-center. That makes it a
 vibration motor (an eccentric rotating mass, like a phone's), and the hit pulses feel much stronger.
 

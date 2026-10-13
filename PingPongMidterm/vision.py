@@ -1,7 +1,8 @@
 """
 Camera-side sensing for T-anne-is.
 
-  * PoseTracker - MediaPipe Pose Landmarker; finds the player's racket hand.
+  * PoseTracker - MediaPipe Pose Landmarker; finds the player's racket hand
+                  (and the free hand, which tosses the ball on a serve).
   * TagReader   - AprilTag (36h11) detection with OpenCV's aruco module.
   * BodyFrame   - maps world meters (ball position) onto the screen using the
                   player's own body as a ruler, so it works at any distance.
@@ -41,6 +42,7 @@ class Body:
     racket: tuple           # (x, y) of the racket hand, or None
     hip: tuple              # hip center (x, y)
     torso_px: float         # pixels per TORSO_M
+    free: tuple = None      # (x, y) of the free (tossing) hand, or None
 
 
 class PoseTracker:
@@ -51,6 +53,7 @@ class PoseTracker:
             min_pose_detection_confidence=0.5, min_tracking_confidence=0.5)
         self.landmarker = mp_vision.PoseLandmarker.create_from_options(opts)
         self.arm = ARM[hand]
+        self.free_arm = ARM["left" if hand == "right" else "right"]
         self.infer_width = infer_width
         self._t0 = None
         self._last_ms = -1
@@ -100,7 +103,9 @@ class PoseTracker:
                 ex, ey = pts[elbow][:2]
                 wx, wy = wx + 0.35 * (wx - ex), wy + 0.35 * (wy - ey)
             racket = (wx, wy)
-        return Body(pts, racket, (float(hip[0]), float(hip[1])), torso_px)
+        free_wrist = self.free_arm[2]
+        free = pts[free_wrist][:2] if seen(free_wrist) else None
+        return Body(pts, racket, (float(hip[0]), float(hip[1])), torso_px, free)
 
 
 class BodyFrame:

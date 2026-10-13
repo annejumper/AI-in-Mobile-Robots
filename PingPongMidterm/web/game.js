@@ -435,9 +435,10 @@ function chrisReact(e) {
       if (S && S.lastShot && !S.lastShot.perfect && S.lastShot.power < 0.85) chrisSays('happy');
       break;
     case 'record': chrisSays('shocked', 'A new record!'); break;
-    case 'miss':   // unforced errors (net / long) make him mad; whiffs make him sad
-      chrisSays(/net|long/i.test(e.title || '') ? 'mad' : 'sad');
+    case 'miss':   // unforced errors (net / long / double fault) make him mad; whiffs make him sad
+      chrisSays(/net|long|fault/i.test(e.title || '') ? 'mad' : 'sad');
       break;
+    case 'fault': chrisSays('sad'); break;
   }
 }
 
@@ -470,6 +471,7 @@ function handleFx(fx) {
       case 'in': pulse(p, 0x5fdc7a); break;
       case 'net': thock({ freq: 80, gain: 0.25, noise: 1, nfreq: 300, dur: 0.15 }); break;
       case 'miss': tone(330, 0.4, 0.14, 'triangle', 0, 110); break;
+      case 'fault': tone(330, 0.25, 0.12, 'triangle', 0, 220); break;
       case 'record':
         [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 0.13, 'triangle', i * 0.1));
         applause();
@@ -505,7 +507,7 @@ function connect() {
 }
 connect();
 
-const KEYS = new Set(['t', 'b', 'f', '1', '2', '3', 'c', 'g', 'h', 's', 'q']);
+const KEYS = new Set(['t', 'b', 'f', '1', '2', '3', 'c', 'g', 'h', 's', 'u', 'q']);
 window.addEventListener('keydown', e => {
   audio();
   const k = e.key === ' ' ? 'space' : e.key.toLowerCase();
