@@ -1,6 +1,7 @@
 name: Gait Identifier
-description: "Ankle-worn MPU-6050 that tells standing, walking, running and biking apart. Step 2: records the IMU at 100 Hz with an activity label picked by a button on D2 and shown on the LED matrix."
+description: "Ankle-worn MPU-6050 that tells standing, walking, running and biking apart. Step 2: records the IMU at 100 Hz with an activity label picked on a phone web page and shown on the LED matrix."
 icon: 🏃
 version: "0.1.0"
 ports: []
-bricks: []
+bricks:
+  - arduino:web_ui

@@ -23,17 +23,34 @@ Everything is worn at the ankle in one 3D-printed housing (attached with an elbo
 | SDA | SDA / D20 |
 | SCL | SCL / D21 |
 
-Activity button: a pushbutton between **D2** and **GND** (the UNO Q has no user button of its own).
+Optional activity button: a pushbutton between **D2** and **GND** (the UNO Q has no user button of its own). Not needed: the phone page below does the same job.
 
 Axes as mounted: **X up the leg, Y forward (direction of travel), Z to the left.** Checked on 2026-10-26: each axis reads about +1 g pointing up. Z reads 0.17 g high, which `main.py` subtracts.
 
 ## Plan
 
 1. **Wiring test** (done 2026-10-26). The IMU answers as a genuine MPU-6050 (WHO_AM_I 0x68) and streams at 100 Hz (±16 g, ±2000 °/s) with no dropped samples.
-2. **Record labeled data** for each activity (1–2 min each, ideally several people). The app in [gait-identifier/](gait-identifier/) is the default app on the board, so it starts on power-up with no laptop. Each press of the D2 button steps PAUSE → STAND → WALK → RUN → BIKE, shown on the LED matrix as ‖, S, W, R, B (✗ if the sensor drops). Every sample is saved with its label to `data/session_<time>.csv` on the board, one file per power-on.
-3. **Features over 2 s windows**: peak/mean/spread per axis, step frequency, gyro energy, gravity direction (catches lying-down air-biking).
-4. **Model 1**: thresholds on peak X acceleration only. **Model 2**: small decision tree on all features, compared against KNN. No neural nets.
-5. **Live display**: activity icon on the LED matrix (animated at step rate, error icon if the sensor drops), plus a web page served by the UNO Q showing both models' answers side by side and live graphs.
+2. **Record labeled data** for each activity (1–2 min each, ideally several people). The app in [gait-identifier/](gait-identifier/) is the default app on the board, so it starts on power-up with no laptop. Pick the activity on a phone at **http://10.247.137.125:7000** (phone on Tufts Wi-Fi), which also shows how much of each has been recorded. The LED matrix shows it as ‖, S, W, R, B (✗ if the sensor drops). Every sample is saved with its label to `data/session_<time>.csv` on the board, one file per power-on.
+3. **Features over 2 s windows** ([features.py](gait-identifier/python/features.py), shared by training and the board): mean, spread, max and min per axis, acceleration and rotation magnitude, and stride/pedal rate.
+4. **Models** ([training/train.py](training/train.py)). **Model 1**: a depth-2 tree on peak X acceleration only, which works out to three thresholds. **Model 2**: a depth-4 decision tree on all features, compared against KNN (k=5). No neural nets. Each recording is split by time (first 70% train, last 30% test). Results from the 2026-10-26 data (326 test windows):
+
+   | Model | Test accuracy |
+   |---|---|
+   | Model 1: peak X accel only (cutoffs 1.26 / 2.32 / 4.12 g) | 96.3% |
+   | Model 2: decision tree, full IMU | 98.2% |
+   | KNN (k=5), full IMU | 98.2% |
+
+   Plots are in [training/results/](training/results/). The bike data is real (upright) biking. Record lying-down air-biking too before demoing that.
+5. **Live display** (done). The board classifies the last 2 s every 0.5 s with both models. On the phone page, the **Live** tab shows the answer large, a switch picks which model drives it and the LED matrix, and both models' answers are shown side by side. The **Record** tab labels new training data.
+
+### Retraining
+
+```
+python3 -m venv .venv && .venv/bin/pip install numpy scikit-learn matplotlib   # once
+.venv/bin/python training/train.py
+```
+
+It reads `data/session_*.csv` (copied off the board from `ArduinoApps/gait-identifier/data/`), prints accuracy and the learned rules, saves plots, and writes `gait-identifier/python/model.json`. Deploy the app again to put the new model on the board.
 
 ## Running it
 

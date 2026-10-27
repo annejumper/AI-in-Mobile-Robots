@@ -6,10 +6,11 @@
 // and the sketch retries once a second, so unplugging and replugging the
 // sensor recovers by itself.
 //
-// A pushbutton between D2 and GND picks the activity being recorded. Each
-// press steps PAUSE -> STAND -> WALK -> RUN -> BIKE -> PAUSE, and the matrix
-// shows the current one (|| for pause, else S, W, R or B). Every sample is
-// tagged with the activity selected when it was taken.
+// The activity being recorded is picked on the web page (python/main.py calls
+// set_label) or, optionally, with a pushbutton between D2 and GND that steps
+// PAUSE -> STAND -> WALK -> RUN -> BIKE -> PAUSE. The matrix shows the current
+// one (|| for pause, else S, W, R or B). Every sample is tagged with the
+// activity selected when it was taken.
 //
 // Wiring (GY-521, everything at the ankle): VCC -> 5V, GND -> GND,
 // SDA -> SDA (D20), SCL -> SCL (D21). AD0 unconnected -> address 0x68.
@@ -25,6 +26,9 @@
 //                    gyro: 16.4 counts per deg/s (+-2000 deg/s)
 //   get_whoami()  -> the sensor's WHO_AM_I register (0x68 on a real
 //                    MPU-6050; clones often report something else), -1 on error
+//   set_label(n)  -> switch to activity n (same numbering as lbl)
+//   set_matrix(n) -> show activity n's icon (the live prediction) instead of
+//                    the recording label; -1 goes back to showing the label
 
 #include <Arduino_RouterBridge.h>
 #include <Arduino_LED_Matrix.h>
@@ -40,69 +44,104 @@ const int BUTTON_PIN = 2;                    // pushbutton to GND
 const unsigned long DEBOUNCE_MS = 40;
 const int NUM_LABELS = 5;                    // pause, stand, walk, run, bike
 
-// 13x8 icons, '#' = lit
-const char *ICON_PAUSE[MATRIX_ROWS] = {
-  ".............",
-  "....##.##....",
-  "....##.##....",
-  "....##.##....",
-  "....##.##....",
-  "....##.##....",
-  "....##.##....",
-  ".............",
+// Icons are drawn upright for the board mounted sideways: 8 dots wide by
+// 13 tall, '#' = lit. drawIcon() turns them a quarter turn onto the 13x8
+// matrix. If they come out upside down, flip TURN_CLOCKWISE.
+const bool TURN_CLOCKWISE = false;
+const int ICON_COLS = MATRIX_ROWS;           // 8
+const int ICON_ROWS = MATRIX_COLS;           // 13
+const char *ICON_PAUSE[ICON_ROWS] = {
+  "........",
+  "........",
+  "........",
+  ".##..##.",
+  ".##..##.",
+  ".##..##.",
+  ".##..##.",
+  ".##..##.",
+  ".##..##.",
+  ".##..##.",
+  "........",
+  "........",
+  "........",
 };
-const char *ICON_STAND[MATRIX_ROWS] = {
-  ".............",
-  ".....####....",
-  "....#........",
-  ".....###.....",
-  "........#....",
-  "........#....",
-  "....####.....",
-  ".............",
+const char *ICON_STAND[ICON_ROWS] = {
+  "........",
+  "........",
+  "..####..",
+  ".#....#.",
+  ".#......",
+  ".#......",
+  "..####..",
+  "......#.",
+  "......#.",
+  ".#....#.",
+  "..####..",
+  "........",
+  "........",
 };
-const char *ICON_WALK[MATRIX_ROWS] = {
-  ".............",
-  "...#.....#...",
-  "...#.....#...",
-  "...#..#..#...",
-  "...#..#..#...",
-  "...#.#.#.#...",
-  "....#...#....",
-  ".............",
+const char *ICON_WALK[ICON_ROWS] = {
+  "........",
+  "........",
+  "#......#",
+  "#......#",
+  "#......#",
+  "#......#",
+  "#......#",
+  "#..##..#",
+  "#.#..#.#",
+  "##....##",
+  "#......#",
+  "........",
+  "........",
 };
-const char *ICON_RUN[MATRIX_ROWS] = {
-  ".............",
-  "....####.....",
-  "....#...#....",
-  "....#...#....",
-  "....####.....",
-  "....#..#.....",
-  "....#...#....",
-  ".............",
+const char *ICON_RUN[ICON_ROWS] = {
+  "........",
+  "........",
+  ".#####..",
+  ".#....#.",
+  ".#....#.",
+  ".#....#.",
+  ".#####..",
+  ".#..#...",
+  ".#...#..",
+  ".#....#.",
+  ".#....#.",
+  "........",
+  "........",
 };
-const char *ICON_BIKE[MATRIX_ROWS] = {
-  ".............",
-  "....####.....",
-  "....#...#....",
-  "....####.....",
-  "....#...#....",
-  "....#...#....",
-  "....####.....",
-  ".............",
+const char *ICON_BIKE[ICON_ROWS] = {
+  "........",
+  "........",
+  ".#####..",
+  ".#....#.",
+  ".#....#.",
+  ".#####..",
+  ".#....#.",
+  ".#....#.",
+  ".#....#.",
+  ".#....#.",
+  ".#####..",
+  "........",
+  "........",
 };
 const char *const *LABEL_ICONS[NUM_LABELS] = {
   ICON_PAUSE, ICON_STAND, ICON_WALK, ICON_RUN, ICON_BIKE,
 };
-const char *ICON_ERROR[MATRIX_ROWS] = {
-  ".............",
-  "...#.....#...",
-  "....#...#....",
-  ".....#.#.....",
-  "......#......",
-  ".....#.#.....",
-  "....#...#....",
-  "...#.....#...",
+const char *ICON_ERROR[ICON_ROWS] = {
+  "........",
+  "........",
+  "........",
+  "#......#",
+  ".#....#.",
+  "..#..#..",
+  "...##...",
+  "...##...",
+  "..#..#..",
+  ".#....#.",
+  "#......#",
+  "........",
+  "........",
 };
 
 Arduino_LED_Matrix matrix;
@@ -117,7 +156,8 @@ volatile uint32_t head = 0;                  // total samples ever written
 uint32_t sent = 0;                           // total samples handed to Linux
 
 volatile bool sensorOk = false;
-uint8_t label = 0;                           // activity being recorded
+volatile uint8_t label = 0;                  // activity being recorded
+volatile int8_t matrixOverride = -1;         // icon to show instead of label
 int shownIcon = -1;                          // label index, NUM_LABELS = error
 bool buttonDown = false;
 unsigned long buttonChangeMs = 0;
@@ -197,10 +237,21 @@ int get_whoami() {
   return readReg(0x75);                      // WHO_AM_I
 }
 
+void set_label(int n) {
+  if (n >= 0 && n < NUM_LABELS) label = n;
+}
+
+void set_matrix(int n) {
+  if (n >= -1 && n < NUM_LABELS) matrixOverride = n;
+}
+
+// Draw an upright ICON_COLS x ICON_ROWS icon turned a quarter turn onto the matrix.
 void drawIcon(const char *const *icon) {
-  for (int r = 0; r < MATRIX_ROWS; r++) {
-    for (int c = 0; c < MATRIX_COLS; c++) {
-      frame[r * MATRIX_COLS + c] = icon[r][c] == '#' ? 7 : 0;   // brightness 0-7
+  for (int r = 0; r < ICON_ROWS; r++) {
+    for (int c = 0; c < ICON_COLS; c++) {
+      int row = TURN_CLOCKWISE ? c : MATRIX_ROWS - 1 - c;
+      int col = TURN_CLOCKWISE ? MATRIX_COLS - 1 - r : r;
+      frame[row * MATRIX_COLS + col] = icon[r][c] == '#' ? 7 : 0;   // brightness 0-7
     }
   }
   matrix.draw(frame);
@@ -220,21 +271,25 @@ void setup() {
   matrix.setGrayscaleBits(3);
   matrix.clear();
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  drawIcon(ICON_ERROR);                      // until the sensor answers
+
+  // Bridge first, so Linux can still reach the sketch if the sensor hangs.
+  Bridge.begin();
+  Bridge.provide("get_samples", get_samples);
+  Bridge.provide("get_whoami", get_whoami);
+  Bridge.provide("set_label", set_label);
+  Bridge.provide("set_matrix", set_matrix);
 
   Wire.begin();
   Wire.setClock(400000);                     // short wires, so fast mode is fine
   sensorOk = mpuInit();
   lastInitTryMs = millis();
   lastSampleUs = micros();
-
-  Bridge.begin();
-  Bridge.provide("get_samples", get_samples);
-  Bridge.provide("get_whoami", get_whoami);
 }
 
 void loop() {
   pollButton();
-  int icon = sensorOk ? label : NUM_LABELS;
+  int icon = !sensorOk ? NUM_LABELS : matrixOverride >= 0 ? matrixOverride : label;
   if (icon != shownIcon) {
     shownIcon = icon;
     drawIcon(icon < NUM_LABELS ? LABEL_ICONS[icon] : ICON_ERROR);

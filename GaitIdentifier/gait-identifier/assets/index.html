@@ -1,0 +1,415 @@
+<!doctype html>
+<!-- Phone page for the gait wearable, served by the WebUI brick in
+     python/main.py at http://<board IP>:7000.
+     Live:   what the board thinks you're doing, which model it uses, and live
+             plots of the last 10 s (beside the answer on a wide screen,
+             below it on a phone).
+     Record: pick the activity label for new training data.
+     Plots are drawn on <canvas> by hand so the page needs no internet. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anne-kle Monitor</title>
+  <style>
+    :root {
+      --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff;
+      --line: #dcdcd6; --accent: #1f6feb; --accent-fg: #ffffff; --bad: #c62828;
+      /* charts (dataviz reference palette, light) */
+      --chart-surface: #fcfcfb; --chart-grid: #e8e7e3; --chart-ink: #52514e;
+      --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+      --act-stand: #2a78d6; --act-walk: #eb6834; --act-run: #1baf7a; --act-bike: #eda100;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161616; --fg: #ededea; --muted: #9a9a94; --card: #222221;
+        --line: #3a3a38; --accent: #4b8ef5; --accent-fg: #0b0b0b; --bad: #ef5350;
+        --chart-surface: #1a1a19; --chart-grid: #2e2e2c; --chart-ink: #c3c2b7;
+        --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+        --act-stand: #3987e5; --act-walk: #d95926; --act-run: #199e70; --act-bike: #c98500;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; padding: 16px; background: var(--bg); color: var(--fg);
+      font: 16px/1.4 -apple-system, system-ui, sans-serif; max-width: 480px;
+    }
+    @media (min-width: 900px) {
+      body { max-width: 1200px; padding: 24px; }
+      #live { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+      #plots { margin-top: 14px; }
+    }
+    h1 { font-size: 20px; margin: 0; }
+    #status { color: var(--muted); font-size: 13px; min-height: 18px; margin-top: 4px; }
+    #status.bad { color: var(--bad); font-weight: 600; }
+
+    .seg { display: flex; background: var(--card); border: 1px solid var(--line);
+           border-radius: 12px; padding: 3px; gap: 3px; }
+    .seg button { flex: 1; border: 0; border-radius: 9px; padding: 10px 8px; font-size: 15px;
+                  font-weight: 600; background: transparent; color: var(--fg); cursor: pointer;
+                  -webkit-tap-highlight-color: transparent; }
+    .seg button.on { background: var(--accent); color: var(--accent-fg); }
+    #tabs { margin-top: 14px; }
+
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+            padding: 20px; margin-top: 14px; }
+    #now { text-align: center; padding: 28px 16px; }
+    #now .icon { font-size: 64px; line-height: 1; }
+    #now .name { font-size: 44px; font-weight: 700; margin-top: 8px; letter-spacing: -0.5px; }
+    #now .by { color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .label { color: var(--muted); font-size: 13px; margin: 18px 2px 6px; }
+    .both { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .both > div { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+                  padding: 12px; min-width: 0; }
+    .seg button, #live > div, #plots { min-width: 0; }
+    .both .k { color: var(--muted); font-size: 13px; }
+    .both .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
+
+    .chart { background: var(--chart-surface); border: 1px solid var(--line); border-radius: 14px;
+             padding: 12px 12px 8px; margin-top: 14px; }
+    .chart h2 { font-size: 15px; margin: 0; font-weight: 600; }
+    .chart .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 4px; font-size: 13px;
+              color: var(--muted); font-variant-numeric: tabular-nums; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+    .legend b { color: var(--fg); font-weight: 600; min-width: 44px; display: inline-block; }
+    canvas { display: block; width: 100%; }
+    canvas.lines { height: 170px; }
+    canvas.strip { height: 64px; }
+
+    .grid { display: grid; gap: 10px; margin-top: 14px; }
+    .grid button {
+      display: flex; justify-content: space-between; align-items: center;
+      width: 100%; padding: 20px 18px; border-radius: 14px;
+      border: 2px solid var(--line); background: var(--card); color: var(--fg);
+      font-size: 22px; font-weight: 600; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .grid button .time { font-size: 16px; font-weight: 500; color: var(--muted);
+                         font-variant-numeric: tabular-nums; }
+    .grid button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    .grid button.on .time { color: var(--accent-fg); }
+    p.hint { color: var(--muted); font-size: 14px; margin-top: 16px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Anne-kle Monitor</h1>
+  <div id="status">Connecting…</div>
+
+  <div class="seg" id="tabs">
+    <button data-mode="live">Live</button>
+    <button data-mode="record">Record</button>
+  </div>
+
+  <section id="live">
+    <div>
+      <div class="card" id="now">
+        <div class="icon" id="nowIcon">⏳</div>
+        <div class="name" id="nowName">…</div>
+        <div class="by" id="nowBy"></div>
+      </div>
+      <div class="label">Model shown above and on the ankle display</div>
+      <div class="seg" id="models"></div>
+      <div class="label">Both models right now</div>
+      <div class="both" id="both"></div>
+    </div>
+
+    <div id="plots">
+      <div class="chart">
+        <h2>Model answers</h2>
+        <div class="sub">Last 10 s, one row per model</div>
+        <div class="legend" id="legActs"></div>
+        <canvas class="strip" id="cStrip"></canvas>
+      </div>
+      <div class="chart">
+        <h2>Acceleration (g)</h2>
+        <div class="sub" id="accSub">Dashed lines: Model 1's cutoffs on peak X</div>
+        <div class="legend" id="legAcc"></div>
+        <canvas class="lines" id="cAcc"></canvas>
+      </div>
+      <div class="chart">
+        <h2>Rotation (°/s)</h2>
+        <div class="sub">Gyroscope, last 10 s</div>
+        <div class="legend" id="legGyr"></div>
+        <canvas class="lines" id="cGyr"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section id="record" hidden>
+    <div class="grid" id="buttons"></div>
+    <p class="hint">Tap an activity, wait about 3 s, then start moving. Tap Pause as soon as you stop.
+      Aim for 2–3 min of each, spread over more than one session.</p>
+  </section>
+
+  <script>
+    const ICONS = { stand: "🧍", walk: "🚶", run: "🏃", bike: "🚴" };
+    const ACTS = ["stand", "walk", "run", "bike"];
+    const PLOT_S = 10;
+    const $ = (id) => document.getElementById(id);
+    const cap = (s) => s[0].toUpperCase() + s.slice(1);
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+    let status = null;
+    let built = false, labelButtons = [], modelButtons = {}, bothCells = {};
+
+    // ---------- controls ----------
+
+    async function post(path) {
+      try { await fetch(path, { method: "POST" }); } catch (e) {}
+      refresh();
+    }
+
+    document.querySelectorAll("#tabs button").forEach((b) =>
+      b.onclick = () => post(`/api/mode/${b.dataset.mode}`));
+
+    function build(s) {
+      labelButtons = s.labels.map((name, i) => {
+        const b = document.createElement("button");
+        b.innerHTML = `<span>${cap(name)}</span><span class="time"></span>`;
+        b.onclick = () => post(`/api/label/${i}`);
+        $("buttons").appendChild(b);
+        return b;
+      });
+      for (const [key, title] of Object.entries(s.models)) {
+        const b = document.createElement("button");
+        b.textContent = title;
+        b.onclick = () => post(`/api/model/${key}`);
+        $("models").appendChild(b);
+        modelButtons[key] = b;
+        const cell = document.createElement("div");
+        cell.innerHTML = `<div class="k">${title}</div><div class="v">…</div>`;
+        $("both").appendChild(cell);
+        bothCells[key] = cell.querySelector(".v");
+      }
+      if (s.peak_cutoffs.length) {
+        $("accSub").textContent = "Dashed lines: Model 1's cutoffs on peak X (" +
+          s.peak_cutoffs.map((c) => c.toFixed(2)).join(" / ") + " g)";
+      }
+      $("legActs").innerHTML = ACTS.map((a) =>
+        `<span><i style="background:var(--act-${a});height:10px;width:10px"></i>${cap(a)}</span>`).join("");
+      built = true;
+    }
+
+    function setStatus(text, bad) {
+      $("status").textContent = text;
+      $("status").className = bad ? "bad" : "";
+    }
+
+    async function refresh() {
+      try {
+        status = await (await fetch("/api/status")).json();
+      } catch (e) {
+        setStatus("Couldn't reach the board", true);
+        return;
+      }
+      const s = status;
+      if (!built) build(s);
+
+      document.querySelectorAll("#tabs button").forEach((b) =>
+        b.classList.toggle("on", b.dataset.mode === s.mode));
+      $("live").hidden = s.mode !== "live";
+      $("record").hidden = s.mode !== "record";
+
+      const p = s.prediction[s.model];
+      $("nowIcon").textContent = p ? ICONS[p] : (s.warming_up ? "⏳" : "–");
+      $("nowName").textContent = p ? cap(p) : (s.warming_up ? "Starting…" : "No model");
+      $("nowBy").textContent = s.models[s.model] ? `by ${s.models[s.model]}` : "";
+      for (const [key, b] of Object.entries(modelButtons)) {
+        b.classList.toggle("on", key === s.model);
+        bothCells[key].textContent = s.prediction[key] ? cap(s.prediction[key]) : "…";
+      }
+
+      s.labels.forEach((name, i) => {
+        labelButtons[i].classList.toggle("on", name === s.label);
+        labelButtons[i].querySelector(".time").textContent =
+          name === "pause" ? "" : fmt(s.seconds[name]);
+      });
+
+      if (!s.sensor_ok) {
+        setStatus("Sensor not answering: check the wiring", true);
+      } else if (s.label && s.label !== "pause") {
+        setStatus(`Recording ${s.label} to ${s.file}`);
+      } else {
+        setStatus(`Connected · saving to ${s.file}` + (s.dropped ? ` · ${s.dropped} dropped` : ""));
+      }
+    }
+
+    // ---------- live plot data ----------
+
+    let samples = [];     // [seq, ax, ay, az, gx, gy, gz]
+    let preds = [];       // [seq, {peak, imu}]
+    let hz = 100, lastSeq = -1, emptyPolls = 0;
+
+    async function pollStream() {
+      if (!status || status.mode !== "live" || document.hidden) return;
+      let d;
+      try {
+        d = await (await fetch(`/api/stream?since=${lastSeq}`)).json();
+      } catch (e) { return; }
+      hz = d.hz;
+      if (d.samples.length) {
+        emptyPolls = 0;
+        samples.push(...d.samples);
+        preds.push(...d.predictions);
+        lastSeq = samples[samples.length - 1][0];
+        const keepFrom = lastSeq - PLOT_S * hz;
+        samples = samples.filter((s) => s[0] >= keepFrom);
+        preds = preds.filter((p, i) => p[0] >= keepFrom || (preds[i + 1] && preds[i + 1][0] >= keepFrom));
+      } else if (++emptyPolls > 8) {
+        // Nothing new for 2 s: the app probably restarted and its sample
+        // numbers began again from 0, so start over.
+        samples = []; preds = []; lastSeq = -1; emptyPolls = 0;
+      }
+      draw();
+    }
+
+    // ---------- drawing ----------
+
+    function setup(canvas) {
+      const r = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+      if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, r.width, r.height);
+      return { ctx, w: r.width, h: r.height };
+    }
+
+    function niceStep(span, count) {
+      const raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const n = raw / mag;
+      return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+    }
+
+    // Time axis shared by every plot: the last PLOT_S seconds, newest on the right.
+    function xScale(left, right) {
+      const end = lastSeq, start = end - PLOT_S * hz;
+      return (seq) => left + (seq - start) / (end - start) * (right - left);
+    }
+
+    function drawTimeAxis(ctx, x, top, bottom) {
+      ctx.fillStyle = css("--chart-ink");
+      ctx.font = "11px -apple-system, system-ui, sans-serif";
+      ctx.textBaseline = "top";
+      for (let s = PLOT_S; s >= 0; s -= 2) {
+        const px = x(lastSeq - s * hz);
+        ctx.textAlign = s === 0 ? "right" : s === PLOT_S ? "left" : "center";
+        ctx.fillText(s === 0 ? "now" : `-${s}s`, px, bottom + 4);
+      }
+    }
+
+    function drawLines(canvas, legendEl, cols, names, minLo, minHi, refs) {
+      const { ctx, w, h } = setup(canvas);
+      const colors = ["--s1", "--s2", "--s3"].map(css);
+      const latest = samples[samples.length - 1];
+      legendEl.innerHTML = names.map((n, i) =>
+        `<span><i style="background:${colors[i]}"></i>${n} <b>${latest ? latest[cols[i]].toFixed(1) : "–"}</b></span>`).join("");
+      if (samples.length < 2) return;
+
+      const L = 40, R = w - 6, T = 6, B = h - 18;
+      let lo = minLo, hi = minHi;
+      for (const s of samples) for (const c of cols) { lo = Math.min(lo, s[c]); hi = Math.max(hi, s[c]); }
+      const step = niceStep(hi - lo, 4);
+      lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+      const x = xScale(L, R), y = (v) => B - (v - lo) / (hi - lo) * (B - T);
+
+      ctx.font = "11px -apple-system, system-ui, sans-serif";
+      ctx.lineWidth = 1;
+      for (let v = lo; v <= hi + step / 2; v += step) {
+        ctx.strokeStyle = css("--chart-grid");
+        ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(R, y(v)); ctx.stroke();
+        ctx.fillStyle = css("--chart-ink"); ctx.textAlign = "right"; ctx.textBaseline = "middle";
+        ctx.fillText(Math.abs(v) < 1e-9 ? "0" : +v.toFixed(2), L - 6, y(v));
+      }
+      drawTimeAxis(ctx, x, T, B);
+
+      // Cutoff lines, labeled at the right edge; a label that would overlap the
+      // one below it is skipped (the subtitle lists every value).
+      let lastLabelY = Infinity;
+      for (const r of [...(refs || [])].sort((a, b) => a - b)) {
+        if (r < lo || r > hi) continue;
+        ctx.strokeStyle = css("--chart-ink"); ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(L, y(r)); ctx.lineTo(R, y(r)); ctx.stroke();
+        ctx.setLineDash([]);
+        if (lastLabelY - y(r) >= 13) {
+          ctx.fillStyle = css("--chart-ink"); ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+          ctx.fillText(`${r.toFixed(2)} g`, R - 2, y(r) - 2);
+          lastLabelY = y(r);
+        }
+      }
+
+      ctx.save();
+      ctx.beginPath(); ctx.rect(L, T - 2, R - L, B - T + 4); ctx.clip();
+      ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+      cols.forEach((c, i) => {
+        ctx.strokeStyle = colors[i];
+        ctx.beginPath();
+        samples.forEach((s, k) => k ? ctx.lineTo(x(s[0]), y(s[c])) : ctx.moveTo(x(s[0]), y(s[c])));
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      r = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+    }
+
+    function drawStrip() {
+      const { ctx, w, h } = setup($("cStrip"));
+      if (!status || !preds.length || lastSeq < 0) return;
+      const keys = Object.keys(status.models);
+      const L = 64, R = w - 6, rowH = 20, gap = 6;
+      const x = xScale(L, R);
+      ctx.font = "12px -apple-system, system-ui, sans-serif";
+      keys.forEach((key, row) => {
+        const top = row * (rowH + gap);
+        ctx.fillStyle = css("--chart-ink"); ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(key === "peak" ? "Peak" : "IMU", 0, top + rowH / 2);
+        // Merge consecutive equal answers into runs, each lasting until the next answer.
+        const runs = [];
+        preds.forEach(([seq, p]) => {
+          const a = p[key];
+          if (!a) return;
+          if (runs.length && runs[runs.length - 1].a === a) return;
+          if (runs.length) runs[runs.length - 1].end = seq;
+          runs.push({ a, start: seq, end: lastSeq });
+        });
+        for (const r of runs) {
+          const x0 = Math.max(L, x(r.start)) + 1, x1 = Math.min(R, x(r.end)) - 1;
+          if (x1 - x0 < 1) continue;
+          ctx.fillStyle = css(`--act-${r.a}`);
+          roundRect(ctx, x0, top, x1 - x0, rowH, 4); ctx.fill();
+          if (x1 - x0 > 44) {
+            ctx.fillStyle = r.a === "bike" ? "#0b0b0b" : "#ffffff";
+            ctx.textAlign = "center";
+            ctx.fillText(cap(r.a), (x0 + x1) / 2, top + rowH / 2 + 0.5);
+          }
+        }
+      });
+      drawTimeAxis(ctx, x, 0, keys.length * (rowH + gap) - gap);
+    }
+
+    function draw() {
+      if (!status || status.mode !== "live") return;
+      drawStrip();
+      drawLines($("cAcc"), $("legAcc"), [1, 2, 3], ["X", "Y", "Z"], -1.5, 2.5, status.peak_cutoffs);
+      drawLines($("cGyr"), $("legGyr"), [4, 5, 6], ["X", "Y", "Z"], -100, 100, []);
+    }
+
+    window.addEventListener("resize", draw);
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+
+    refresh();
+    setInterval(refresh, 500);
+    setInterval(pollStream, 250);
+  </script>
+</body>
+</html>
