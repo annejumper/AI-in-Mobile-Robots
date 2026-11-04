@@ -1,0 +1,7 @@
+name: Step Counter
+description: "Ankle-worn MPU-6050 that counts steps with a small PyTorch-trained neural net, estimates distance walked (ZUPT and step-length models) and still tells standing, walking, running and biking apart. Phone page at port 7000: live count, counted test trials, labeled recording."
+icon: 👣
+version: "0.2.0"
+ports: []
+bricks:
+  - arduino:web_ui

@@ -1,0 +1,2 @@
+# Nothing to install: stepnet.py needs numpy, which is already in the board's
+# Python image (numpy 2.5.1, checked 2026-11-02).
