@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.DS_Store
+# hand photos: kept local (can be large); share separately if needed
+data/
+# the secret code stays off GitHub
+lock_code.json
+camera/snapshot_*.jpg
+tools/board_secrets.py
+snaps/
+unoq/*/cmd.txt
+unoq/*/mode.txt

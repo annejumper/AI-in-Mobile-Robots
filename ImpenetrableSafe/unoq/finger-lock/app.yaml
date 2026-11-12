@@ -1,0 +1,7 @@
+name: Finger Lock
+description: "A safe that opens for a 3-digit finger code: webcam + CNN (ONNX) + lock policy, button, servo and LED matrix. Live camera page at port 7000."
+icon: 🔐
+version: "1.1.0"
+ports: []
+bricks:
+  - arduino:web_ui

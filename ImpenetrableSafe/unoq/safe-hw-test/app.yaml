@@ -1,0 +1,6 @@
+name: Safe Hardware Test
+description: "Tests the safe's LED matrix, start button (D2) and servo latch (D9)."
+icon: 🔐
+version: "1.0.0"
+ports: []
+bricks: []
