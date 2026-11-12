@@ -8,3 +8,4 @@ Coursework for the AI in Mobile Robots class, combined into one repository with 
 - **[MoveSingleMotor](MoveSingleMotor/)** — a small script demonstrating the official `legoeducation` Python API to drive a LEGO Education Single Motor.
 - **[GaitIdentifier](GaitIdentifier/)** — a wearable Arduino UNO Q + MPU-6050 that tells standing, walking, running and biking apart, comparing a one-axis peak-acceleration model against a full-IMU model.
 - **[straight-walk](straight-walk/)** — tabular Q-learning that teaches a two-legged LEGO Education Double Motor walker to walk in a straight line using its built-in IMU heading.
+- **[ImpenetrableSafe](ImpenetrableSafe/)** — a safe that opens to a finger-count code: a CNN built from scratch in PyTorch counts fingers from a webcam and runs on an Arduino UNO Q, which drives the LED matrix, button and servo latch.
