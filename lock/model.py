@@ -20,18 +20,31 @@ from config import IMG_SIZE, CLASSES
 
 
 class FingerCNN(nn.Module):
+    """
+    4 conv blocks (conv -> batch norm -> ReLU), the first 3 followed by a 2x2 max-pool:
+        64x64x3 -> 32x32x16 -> 16x16x32 -> 8x8x64 -> 8x8x128
+    then global average pooling: each of the 128 features is averaged over the whole image,
+    so the answer depends on how much "finger" the network sees, not where the hand is.
+    Batch norm keeps every layer's numbers in a steady range (faster, steadier training,
+    less sensitive to lighting).
+    """
     def __init__(self, n_classes=len(CLASSES)):
         super().__init__()
+
+        def block(c_in, c_out, k, pool=True):
+            layers = [nn.Conv2d(c_in, c_out, kernel_size=k, padding=k // 2, bias=False),
+                      nn.BatchNorm2d(c_out), nn.ReLU()]
+            return layers + ([nn.MaxPool2d(2)] if pool else [])
+
         self.features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=5, padding=2), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+            *block(3, 16, 5), *block(16, 32, 3), *block(32, 64, 3), *block(64, 128, 3, pool=False),
         )
+        self.pool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(0.3)   # randomly drops numbers while training so it can't memorise
-        self.classifier = nn.Linear(64 * (IMG_SIZE // 8) ** 2, n_classes)
+        self.classifier = nn.Linear(128, n_classes)
 
     def forward(self, x):
-        x = self.features(x)
+        x = self.pool(self.features(x))
         x = torch.flatten(x, 1)
         return self.classifier(self.dropout(x))
 

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imp-anne-etrable Safe</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc;
+    --accent: #c2410c; --ok: #15803d; --bad: #b91c1c; --bar: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151517; --panel: #1f1f22; --ink: #f2f2f3; --muted: #a0a0a6; --line: #333338;
+            --accent: #fb923c; --ok: #4ade80; --bad: #f87171; --bar: #fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .video { padding: 0; overflow: hidden; }
+  .video img { display: block; width: 100%; height: auto; background: #000; aspect-ratio: 16 / 9; }
+  .state { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
+  .state.UNLOCKED { color: var(--ok); } .state.DENIED, .state.LOCKOUT { color: var(--bad); }
+  .state.ENTERING { color: var(--accent); }
+  .msg { color: var(--muted); min-height: 1.4em; }
+  .slots { display: flex; gap: 8px; margin: 10px 0 4px; }
+  .slot { width: 34px; height: 42px; border-radius: 8px; border: 2px solid var(--line);
+          display: grid; place-items: center; font-size: 22px; font-weight: 700; }
+  .slot.filled { border-color: var(--accent); color: var(--accent); }
+  .hold { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .hold > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 8px; }
+  .big { font-size: 44px; font-weight: 800; line-height: 1; }
+  .bars { display: grid; gap: 5px; }
+  .bar { display: grid; grid-template-columns: 16px 1fr 44px; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; }
+  .track { height: 14px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .track > div { height: 100%; background: var(--bar); width: 0; transition: width 0.15s; }
+  .bar.top .track > div { background: var(--accent); }
+  .bar span:last-child { text-align: right; color: var(--muted); font-size: 13px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--bg); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.on { outline: 2px solid var(--accent); }
+  button.rec-on { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🔐 The Imp-anne-etrable Safe</h1>
+    <span class="sub">live from the UNO Q · red square = what the network looks at · top-right = its 64×64 input</span>
+  </header>
+  <div class="grid">
+    <div class="panel video"><img src="/stream" alt="Live camera"></div>
+    <div class="panel">
+      <div id="state" class="state">…</div>
+      <div id="msg" class="msg"></div>
+      <div id="slots" class="slots"></div>
+      <div class="hold"><div id="hold"></div></div>
+
+      <h2>Network sees</h2>
+      <div><span id="fingers" class="big">–</span> <span id="conf" class="sub"></span></div>
+      <div id="bars" class="bars" style="margin-top:10px"></div>
+
+      <h2>Controls</h2>
+      <div class="buttons">
+        <button class="primary" onclick="post('/api/press')">Press button</button>
+        <button id="m-count" onclick="post('/api/mode/count')">Count mode</button>
+        <button id="m-lock" onclick="post('/api/mode/lock')">Lock mode</button>
+      </div>
+      <div class="buttons" style="margin-top:8px">
+        <button onclick="post('/api/latch/unlock')">Servo: unlock</button>
+        <button onclick="post('/api/latch/lock')">Servo: lock</button>
+      </div>
+
+      <h2>Record training pictures</h2>
+      <div class="buttons" id="rec"></div>
+      <div id="rec-msg" class="meta">Pick a number, then show it in the square while moving your hand around.</div>
+      <div id="meta" class="meta"></div>
+    </div>
+  </div>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const bars = $('bars');
+  for (let k = 0; k < 6; k++) {
+    bars.insertAdjacentHTML('beforeend',
+      `<div class="bar" id="b${k}"><span>${k}</span><div class="track"><div></div></div><span>0%</span></div>`);
+  }
+  const rec = $('rec');
+  for (let k = 0; k < 6; k++)
+    rec.insertAdjacentHTML('beforeend', `<button id="r${k}" onclick="post('/api/record/${k}')">${k}</button>`);
+  rec.insertAdjacentHTML('beforeend', `<button onclick="post('/api/record/stop')">Stop</button>`);
+  function post(url) { fetch(url, { method: 'POST' }).then(refresh); }
+
+  async function refresh() {
+    let s;
+    try { s = await (await fetch('/api/status')).json(); } catch { return; }
+    if (!s || s.mode === undefined) return;
+    $('state').textContent = s.state;
+    $('state').className = 'state ' + s.state;
+    $('msg').textContent = s.message;
+    const lock = s.mode === 'lock';
+    $('slots').style.display = lock ? 'flex' : 'none';
+    $('slots').innerHTML = [0, 1, 2].map(i =>
+      `<div class="slot ${i < s.entered ? 'filled' : ''}">${i < s.entered ? '•' : ''}</div>`).join('');
+    $('hold').style.width = (lock ? s.hold * 100 : 0) + '%';
+    const sure = s.confidence >= s.min_conf;
+    $('fingers').textContent = sure ? s.fingers : '?';
+    $('conf').textContent = `${Math.round(s.confidence * 100)}% sure`;
+    s.probs.forEach((p, k) => {
+      const b = $('b' + k);
+      b.classList.toggle('top', k === s.fingers);
+      b.querySelector('.track > div').style.width = (p * 100) + '%';
+      b.lastElementChild.textContent = Math.round(p * 100) + '%';
+    });
+    $('m-count').classList.toggle('on', !lock);
+    $('m-lock').classList.toggle('on', lock);
+    for (let k = 0; k < 6; k++) $('r' + k).classList.toggle('rec-on', s.recording === String(k));
+    $('rec-msg').textContent = s.recording !== null && s.recording !== undefined
+      ? `Recording ${s.recording}: ${s.rec_count} pictures. Keep moving your hand, then press Stop.`
+      : 'Pick a number, then show it in the square while moving your hand around.';
+    $('meta').textContent = `${s.fps} frames/s on the board`;
+  }
+  setInterval(refresh, 250);
+  refresh();
+</script>
+</body>
+</html>

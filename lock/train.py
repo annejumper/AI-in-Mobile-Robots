@@ -1,10 +1,20 @@
 """
 Train the finger-counting CNN on data/<fingers>/*.jpg.
 
-    python lock/train.py            (or --epochs 40 --lr 0.001)
+    python lock/train.py            (or --epochs 60 --lr 0.001; the learning rate is lowered gradually)
+    python lock/train.py --all      final model: train on every recording, no validation
+
+Use the plain run to measure how well the network handles recordings it has never seen
+(results/confusion_matrix.png). Then train with --all for the model that goes on the board, so it
+also learns the hand styles that were only in the held-out recordings.
 
 Data augmentation: every time an image is used it is randomly rotated, shifted, zoomed,
 mirrored and re-lit, so the network sees "new" pictures each epoch and doesn't memorise.
+It is also given a random colour cast (white balance), because the board's camera makes
+pictures bluer than the laptop does: without this the network learned "bluish = 3", since
+3 was the only number recorded on the board.
+
+Balanced sampling: each epoch draws every number equally often, however many pictures it has.
 
 Splitting: images are grouped by recording session (the part of the filename before "_"),
 and whole sessions go to validation. Neighbouring frames from one recording look almost the same,
@@ -23,7 +33,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision.transforms import v2
 
 import config
@@ -34,6 +44,12 @@ augment = v2.Compose([
     v2.RandomHorizontalFlip(),
     v2.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.03),
 ])
+
+
+def white_balance(x, amount=0.2):
+    """Multiply R, G and B by different random gains (0.8-1.2): a warmer or cooler picture."""
+    gains = 1 + (torch.rand(3, 1, 1) * 2 - 1) * amount
+    return x * gains
 
 
 class Fingers(Dataset):
@@ -50,7 +66,7 @@ class Fingers(Dataset):
             self.cache[path] = preprocess(cv2.imread(str(path)))
         x = self.cache[path]
         if self.train:   # augment in [0, 1] space, then back to [-1, 1]
-            x = augment(x * 0.5 + 0.5).clamp(0, 1) * 2 - 1
+            x = white_balance(augment(x * 0.5 + 0.5)).clamp(0, 1) * 2 - 1
         return x, label
 
 
@@ -58,10 +74,16 @@ def split(val_frac, seed):
     """Whole sessions go to validation, per class, so train and val pictures aren't near-copies."""
     rng = random.Random(seed)
     train, val = [], []
+    # Laptop recordings and board recordings (names starting with "b", from tools/latch.py pull)
+    # are split separately, so both cameras show up in training AND in validation.
+    groups = []
     for k, c in enumerate(config.CLASSES):
-        sessions = defaultdict(list)
+        by_source = {"laptop": defaultdict(list), "board": defaultdict(list)}
         for p in sorted((config.DATA_DIR / str(c)).glob("*.jpg")):
-            sessions[p.name.split("_")[0]].append((p, k))
+            source = "board" if p.name.startswith("b") else "laptop"
+            by_source[source][p.name.split("_")[0]].append((p, k))
+        groups += [s for s in by_source.values() if s]
+    for sessions in groups:
         names = sorted(sessions)
         rng.shuffle(names)
         total, taken = sum(len(v) for v in sessions.values()), 0
@@ -101,33 +123,48 @@ def run_epoch(model, loader, loss_fn, device, opt=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--epochs", type=int, default=40)
+    ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--val", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--all", action="store_true", help="train on every recording (final model)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     train_items, val_items = split(args.val, args.seed)
+    if args.all:
+        train_items, val_items = train_items + val_items, []
     print(f"{len(train_items)} training images, {len(val_items)} validation images, on {device}")
     for k, c in enumerate(config.CLASSES):
         print(f"  {c} fingers: {sum(l == k for _, l in train_items)} train, {sum(l == k for _, l in val_items)} val")
 
-    train_dl = DataLoader(Fingers(train_items, True), batch_size=args.batch, shuffle=True)
-    val_dl = DataLoader(Fingers(val_items, False), batch_size=args.batch)
+    per_class = np.bincount([l for _, l in train_items], minlength=len(config.CLASSES))
+    weights = [1.0 / per_class[l] for _, l in train_items]          # rare numbers drawn more often
+    sampler = WeightedRandomSampler(weights, num_samples=len(train_items), replacement=True)
+    train_dl = DataLoader(Fingers(train_items, True), batch_size=args.batch, sampler=sampler)
+    val_dl = DataLoader(Fingers(val_items, False), batch_size=args.batch) if val_items else None
 
     model = FingerCNN().to(device)
     print(f"{sum(p.numel() for p in model.parameters()):,} weights")
     loss_fn = nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # learning rate glides from lr down to ~0 over the run: big steps early, fine steps at the end
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
 
     hist = defaultdict(list)
     best = -1.0
     config.MODEL_PATH.parent.mkdir(exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         tl, ta, _, _ = run_epoch(model, train_dl, loss_fn, device, opt)
+        sched.step()
+        if val_dl is None:          # --all: nothing held out, keep the last epoch
+            hist["train_loss"].append(tl); hist["train_acc"].append(ta)
+            torch.save({"state_dict": model.state_dict(), "img_size": config.IMG_SIZE,
+                        "classes": config.CLASSES}, config.MODEL_PATH)
+            print(f"epoch {epoch:3d}  train loss {tl:.3f} acc {ta:.1%}")
+            continue
         vl, va, vp, vy = run_epoch(model, val_dl, loss_fn, device)
         for k, v in (("train_loss", tl), ("train_acc", ta), ("val_loss", vl), ("val_acc", va)):
             hist[k].append(v)
@@ -140,6 +177,14 @@ def main():
         print(f"epoch {epoch:3d}  train loss {tl:.3f} acc {ta:.1%}   val loss {vl:.3f} acc {va:.1%}{mark}")
 
     config.RESULTS_DIR.mkdir(exist_ok=True)
+    if val_dl is None:
+        fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
+        a1.plot(hist["train_loss"]); a1.set(xlabel="epoch", ylabel="cross-entropy loss", title="Loss (all data)")
+        a2.plot(hist["train_acc"]); a2.set(xlabel="epoch", ylabel="accuracy", title="Accuracy (all data)", ylim=(0, 1.02))
+        fig.tight_layout(); fig.savefig(config.RESULTS_DIR / "training_curves_all.png", dpi=150)
+        print(f"\nfinal model (all {len(train_items)} images) in {config.MODEL_PATH}; "
+              f"the held-out accuracy from the last plain run is the honest estimate")
+        return
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
     a1.plot(hist["train_loss"], label="train"); a1.plot(hist["val_loss"], label="validation")
     a1.set(xlabel="epoch", ylabel="cross-entropy loss", title="Loss"); a1.legend()

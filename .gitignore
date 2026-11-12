@@ -6,3 +6,7 @@ data/
 # the secret code stays off GitHub
 lock_code.json
 camera/snapshot_*.jpg
+tools/board_secrets.py
+snaps/
+unoq/*/cmd.txt
+unoq/*/mode.txt

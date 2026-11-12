@@ -1,16 +1,13 @@
 """
 The lock, running on the computer. SPACE stands in for the button.
 
-    python lock/lock_live.py --set-code 315     (once: save a 3-digit code of different numbers 1-5)
+    python lock/lock_live.py --set-code 315     (once: save a 3-digit code, each digit 1-5; repeats allowed)
     python lock/lock_live.py                     (run the lock)
     python lock/lock_live.py --count-only        (just show the finger count, for testing the model)
 
 Lock policy (what lock_policy.py decides):
   LOCKED     waiting for the button.
-  ENTERING   for each of the 3 digits: the same count (1-5) must be predicted with at least
-             MIN_CONF confidence for HOLD_FRAMES frames in a row. Then the hand must leave
-             (0 fingers / empty square) before the next digit is read, so holding up "3"
-             doesn't type 3-3-3. If 20 s pass with no new digit, it gives up and stays locked.
+  ENTERING   show a digit, adjust until the preview is right, press SPACE (the button) to enter it.
   UNLOCKED   all 3 digits matched: servo opens; SPACE locks it again.
   DENIED     wrong code: stays locked. 3 wrong codes in a row -> 30 s lockout.
 """
@@ -50,8 +47,8 @@ def main():
 
     if args.set_code:
         digits = [int(c) for c in args.set_code]
-        if len(digits) != 3 or len(set(digits)) != 3 or not all(1 <= d <= 5 for d in digits):
-            raise SystemExit("The code must be 3 different numbers from 1 to 5, e.g. 315")
+        if len(digits) != 3 or not all(1 <= d <= 5 for d in digits):
+            raise SystemExit("The code must be 3 numbers from 1 to 5, e.g. 315 or 331")
         config.CODE_PATH.write_text(json.dumps({"code": digits}))
         print(f"Saved code to {config.CODE_PATH}")
         return
@@ -94,7 +91,10 @@ def main():
             text(view, policy.state, (15, view.shape[0] - 110), 1.6, color)
             text(view, policy.message(), (15, view.shape[0] - 60), 1.0, color)
             # what the UNO Q's LED matrix will show: the digits so far, then a check or an X
-            entered = " ".join(str(d) for d in policy.entered) + " _" * (3 - len(policy.entered))
+            shown = [str(d) for d in policy.entered]
+            if policy.state == "ENTERING" and policy.CONFIRM_WITH_BUTTON and policy.candidate:
+                shown.append(f"({policy.candidate})")      # preview: press SPACE to enter it
+            entered = " ".join(shown + ["_"] * (3 - len(shown)))
             text(view, entered, (view.shape[1] - 330, 80), 2.0, color)
             if policy.state == "ENTERING" and policy.candidate:
                 frac = policy.hold / policy.HOLD_FRAMES

@@ -90,6 +90,8 @@ def main():
             label, recording = key - ord("0"), False
         if key == ord(" "):
             recording = not recording
+            if recording:   # each recording is its own session, so training can hold whole ones out
+                session = time.strftime("%m%d-%H%M%S")
         if key == ord("n"):
             cap.release()
             cam = (cam + 1) % 3
