@@ -23,6 +23,7 @@ so splitting them randomly would let the network be graded on pictures it alread
 Saves models/finger_cnn.pt and, in results/, the loss/accuracy curves and a confusion matrix.
 """
 import argparse
+from pathlib import Path
 import random
 from collections import defaultdict
 
@@ -129,6 +130,7 @@ def main():
     ap.add_argument("--val", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--all", action="store_true", help="train on every recording (final model)")
+    ap.add_argument("--save", type=Path, default=config.MODEL_PATH, help="where to save the model")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -155,14 +157,14 @@ def main():
 
     hist = defaultdict(list)
     best = -1.0
-    config.MODEL_PATH.parent.mkdir(exist_ok=True)
+    args.save.parent.mkdir(exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         tl, ta, _, _ = run_epoch(model, train_dl, loss_fn, device, opt)
         sched.step()
         if val_dl is None:          # --all: nothing held out, keep the last epoch
             hist["train_loss"].append(tl); hist["train_acc"].append(ta)
             torch.save({"state_dict": model.state_dict(), "img_size": config.IMG_SIZE,
-                        "classes": config.CLASSES}, config.MODEL_PATH)
+                        "classes": config.CLASSES}, args.save)
             print(f"epoch {epoch:3d}  train loss {tl:.3f} acc {ta:.1%}")
             continue
         vl, va, vp, vy = run_epoch(model, val_dl, loss_fn, device)
@@ -172,7 +174,7 @@ def main():
         if va >= best:
             best, best_preds = va, (vp, vy)
             torch.save({"state_dict": model.state_dict(), "img_size": config.IMG_SIZE,
-                        "classes": config.CLASSES}, config.MODEL_PATH)
+                        "classes": config.CLASSES}, args.save)
             mark = "  saved"
         print(f"epoch {epoch:3d}  train loss {tl:.3f} acc {ta:.1%}   val loss {vl:.3f} acc {va:.1%}{mark}")
 
@@ -182,7 +184,7 @@ def main():
         a1.plot(hist["train_loss"]); a1.set(xlabel="epoch", ylabel="cross-entropy loss", title="Loss (all data)")
         a2.plot(hist["train_acc"]); a2.set(xlabel="epoch", ylabel="accuracy", title="Accuracy (all data)", ylim=(0, 1.02))
         fig.tight_layout(); fig.savefig(config.RESULTS_DIR / "training_curves_all.png", dpi=150)
-        print(f"\nfinal model (all {len(train_items)} images) in {config.MODEL_PATH}; "
+        print(f"\nfinal model (all {len(train_items)} images) in {args.save}; "
               f"the held-out accuracy from the last plain run is the honest estimate")
         return
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
@@ -204,7 +206,7 @@ def main():
     ax.set(xticks=range(n), yticks=range(n), xlabel="predicted fingers", ylabel="true fingers",
            title=f"Validation confusion matrix ({best:.1%})")
     fig.tight_layout(); fig.savefig(config.RESULTS_DIR / "confusion_matrix.png", dpi=150)
-    print(f"\nbest validation accuracy {best:.1%}; model in {config.MODEL_PATH}, plots in {config.RESULTS_DIR}")
+    print(f"\nbest validation accuracy {best:.1%}; model in {args.save}, plots in {config.RESULTS_DIR}")
 
 
 if __name__ == "__main__":

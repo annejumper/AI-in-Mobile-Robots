@@ -1,0 +1,7 @@
+held-out pictures: 1574 from 20 recordings never used in training
+accuracy: 76.0%
+mistakes that are one finger off: 99%
+right answers at >= 80% confidence: 78% of 1197;  wrong answers at >= 80%: 34% of 377
+per number (laptop / board): 0: 82% / 100%, 1: 100% / 95%, 2: 89% / 10%, 3: 65% / 59%, 4: 1% / 99%, 5: 99% / 99%
+button press outcome over all held-out moments showing 1-5: ignored 43%, right 50%, wrong 7%
+worst recordings: 4 fingers laptop 1111-005948: 1%; 2 fingers board b1112-222659: 10%; 3 fingers board b1112-220714: 43%
