@@ -1,0 +1,80 @@
+<?xml version="1.0" ?>
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape https://cad.onshape.com/documents/bb4ea209772a1952deac1d78/w/2d66f9004ffb9c85cbadf061/e/ff74df7efc5fac8e96c3cc07 -->
+<mujoco model="onshape">
+  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+  <default>
+    <default class="onshape">
+      <joint frictionloss="0.1" armature="0.005"/>
+      <position kp="50" dampratio="1"/>
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2"/>
+      </default>
+      <default class="collision">
+        <geom group="3"/>
+      </default>
+    </default>
+  </default>
+  <worldbody>
+    <!-- Link chassis -->
+    <body name="chassis" pos="0 0 0" quat="1 0 0 0" childclass="onshape">
+      <inertial pos="0.00440745 -0.0250187 0.0165774" mass="0.0843777" fullinertia="4.73454e-05 2.05135e-05 5.66074e-05 1.14094e-06 -1.3771e-07 -3.91659e-06"/>
+      <!-- Part chassis -->
+      <geom type="mesh" class="visual" pos="0.00410653 -0.0137082 0.0120282" quat="0.998211 0.054441 -0.0144653 0.0200515" mesh="chassis" material="chassis_material"/>
+      <geom type="mesh" class="collision" pos="0.00410653 -0.0137082 0.0120282" quat="0.998211 0.054441 -0.0144653 0.0200515" mesh="chassis" material="chassis_material"/>
+      <!-- Link left_hub -->
+      <body name="left_hub" pos="0.0309482 -0.0449252 0.015132" quat="0.469092 0.509068 0.474678 0.543584">
+        <!-- Joint from chassis to left_hub -->
+        <joint axis="0 0 1" name="left_wheel"/>
+        <inertial pos="0.00846084 0.000211242 0.00720047" mass="0.00530404" fullinertia="2.05194e-07 1.52867e-06 1.54398e-06 -6.533e-09 -1.44212e-07 -3.601e-09"/>
+        <!-- Part pin -->
+        <geom type="mesh" class="visual" pos="0.00798405 -1.52071e-05 0.006389" quat="0.499524 -0.500476 -0.499524 -0.500476" mesh="pin" material="pin_material"/>
+        <geom type="mesh" class="collision" pos="0.00798405 -1.52071e-05 0.006389" quat="0.499524 -0.500476 -0.499524 -0.500476" mesh="pin" material="pin_material"/>
+        <!-- Part pin_2 -->
+        <geom type="mesh" class="visual" pos="-0.00798405 1.52071e-05 0.006389" quat="0.499524 -0.500476 -0.499524 -0.500476" mesh="pin" material="pin_material"/>
+        <geom type="mesh" class="collision" pos="-0.00798405 1.52071e-05 0.006389" quat="0.499524 -0.500476 -0.499524 -0.500476" mesh="pin" material="pin_material"/>
+        <!-- Part left_hub -->
+        <geom type="mesh" class="visual" pos="-0.031777 0.00583904 -0.0257048" quat="0.500476 0.499524 -0.500476 0.499524" mesh="left_hub" material="left_hub_material"/>
+        <geom type="mesh" class="collision" pos="-0.031777 0.00583904 -0.0257048" quat="0.500476 0.499524 -0.500476 0.499524" mesh="left_hub" material="left_hub_material"/>
+        <!-- Part leg -->
+        <geom type="mesh" class="visual" pos="-0.031777 0.00583904 0.0465328" quat="0.500476 0.499524 -0.500476 0.499524" mesh="leg" material="leg_material"/>
+        <geom type="mesh" class="collision" pos="-0.031777 0.00583904 0.0465328" quat="0.500476 0.499524 -0.500476 0.499524" mesh="leg" material="leg_material"/>
+      </body>
+      <!-- Link right_hub -->
+      <body name="right_hub" pos="-0.0203985 -0.0469022 0.0135351" quat="0.468361 0.509705 0.473994 0.544214">
+        <!-- Joint from chassis to right_hub -->
+        <joint axis="0 0 1" name="right_wheel"/>
+        <inertial pos="-0.00846041 -0.000227353 -0.00720047" mass="0.00530404" fullinertia="2.05224e-07 1.52864e-06 1.54398e-06 -9.054e-09 -1.44205e-07 -3.875e-09"/>
+        <!-- Part pin_3 -->
+        <geom type="mesh" class="visual" pos="-0.00798407 -0 -0.006389" quat="0.5 -0.5 -0.5 -0.5" mesh="pin" material="pin_material"/>
+        <geom type="mesh" class="collision" pos="-0.00798407 -0 -0.006389" quat="0.5 -0.5 -0.5 -0.5" mesh="pin" material="pin_material"/>
+        <!-- Part right_hub -->
+        <geom type="mesh" class="visual" pos="0.0317881 -0.0057785 0.0257048" quat="0.5 -0.5 -0.5 -0.5" mesh="right_hub" material="right_hub_material"/>
+        <geom type="mesh" class="collision" pos="0.0317881 -0.0057785 0.0257048" quat="0.5 -0.5 -0.5 -0.5" mesh="right_hub" material="right_hub_material"/>
+        <!-- Part leg_2 -->
+        <geom type="mesh" class="visual" pos="0.0317881 -0.0057785 0.0257048" quat="0.5 -0.5 -0.5 -0.5" mesh="leg" material="leg_material"/>
+        <geom type="mesh" class="collision" pos="0.0317881 -0.0057785 0.0257048" quat="0.5 -0.5 -0.5 -0.5" mesh="leg" material="leg_material"/>
+        <!-- Part pin_4 -->
+        <geom type="mesh" class="visual" pos="0.00798407 0 -0.006389" quat="0.5 -0.5 -0.5 -0.5" mesh="pin" material="pin_material"/>
+        <geom type="mesh" class="collision" pos="0.00798407 0 -0.006389" quat="0.5 -0.5 -0.5 -0.5" mesh="pin" material="pin_material"/>
+      </body>
+    </body>
+  </worldbody>
+  <asset>
+    <mesh file="right_hub.stl"/>
+    <mesh file="chassis.stl"/>
+    <mesh file="leg.stl"/>
+    <mesh file="pin.stl"/>
+    <mesh file="left_hub.stl"/>
+    <material name="chassis_material" rgba="0.0705882 0.792157 0.745098 1"/>
+    <material name="pin_material" rgba="0.980392 0.796078 0.262745 1"/>
+    <material name="left_hub_material" rgba="0.0705882 0.792157 0.745098 1"/>
+    <material name="leg_material" rgba="0.701961 0.701961 0.701961 1"/>
+    <material name="right_hub_material" rgba="0.0705882 0.792157 0.745098 1"/>
+  </asset>
+  <actuator>
+    <position class="onshape" name="left_wheel" joint="left_wheel"/>
+    <position class="onshape" name="right_wheel" joint="right_wheel"/>
+  </actuator>
+  <equality/>
+</mujoco>

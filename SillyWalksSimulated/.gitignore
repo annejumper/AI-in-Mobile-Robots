@@ -1,0 +1,7 @@
+# cluster job folders and command logs (large, regenerated every run); keep final results in results/
+runs/
+logs/
+__pycache__/
+.venv/
+# Onshape API keys: never commit
+.env

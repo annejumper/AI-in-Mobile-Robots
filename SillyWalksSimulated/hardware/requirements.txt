@@ -1,0 +1,5 @@
+legoeducation>=1.2
+onnxruntime
+numpy
+# only for the --fake mode (MuJoCo model on the laptop instead of the robot):
+mujoco
