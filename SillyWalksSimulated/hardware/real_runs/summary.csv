@@ -1,0 +1,4 @@
+when,mode,floor,seconds,forward_m,sideways_m,heading_min_deg,heading_max_deg,log
+20261116-000730,fake,default,10.0,0.717,0.024,-19.5,19.3,fake_default_20261116-000730.csv
+20261116-000839,fake,laminate,10.0,0.634,0.019,-20.2,12.9,fake_laminate_20261116-000839.csv
+20261116-000839,fake,carpet,10.0,0.562,-0.08,-21.2,9.7,fake_carpet_20261116-000839.csv
