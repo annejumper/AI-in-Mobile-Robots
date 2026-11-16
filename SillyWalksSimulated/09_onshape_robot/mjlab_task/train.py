@@ -4,7 +4,7 @@
 """
 import sys
 
-import drive_task  # noqa: F401  (registers "Drive-Straight-Laminate" and "-Carpet")
+import drive_task  # noqa: F401  (registers Drive-Straight-*, Walk-Real-* and, with motor_model.json, Walk-Measured-*)
 from mjlab.scripts.train import main
 
 if __name__ == "__main__":

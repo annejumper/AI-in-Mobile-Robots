@@ -1,0 +1,90 @@
+{
+  "what": "Double Motor model measured by hardware/characterize_motor.py; drive_task.py reads the 'mjlab' part",
+  "fake": true,
+  "runs": [
+    "fake_air_20261116-165624.json",
+    "fake_floor_laminate_20261116-165624.json",
+    "fake_floor_carpet_20261116-165625.json"
+  ],
+  "measured": {
+    "per_motor": [
+      {
+        "gain_rad_s_per_pct": 0.10976021587437712,
+        "top_speed_rad_s": 9.297639752326699,
+        "droop_rad_s": 0.18784177019506382,
+        "deadband_pct": 1.7113830243378227,
+        "top_positive_rad_s": 9.290869078504354,
+        "top_negative_rad_s": 9.304410426149044
+      },
+      {
+        "gain_rad_s_per_pct": 0.10514547145067185,
+        "top_speed_rad_s": 8.803380563292095,
+        "droop_rad_s": 0.20305161117104958,
+        "deadband_pct": 1.9311493720992978,
+        "top_positive_rad_s": 8.801875969109387,
+        "top_negative_rad_s": 8.8048851574748
+      }
+    ],
+    "notify_interval_s": 0.019999999999999574,
+    "first_movement_s": {
+      "median": 0.11500000000000199,
+      "p10": 0.10499999999999687,
+      "p90": 0.15999999999999964
+    },
+    "time_to_63pct_s": 0.13000000000000256,
+    "sensor_lag_assumed_s": 0.015
+  },
+  "mjlab": {
+    "damping": 0.02102241038134289,
+    "effort_limit": 0.1000000000000001,
+    "armature": 0.0013053422280342685,
+    "frictionloss": 0.004108760539214604,
+    "delay_steps": [
+      9,
+      13
+    ],
+    "physics_dt_s": 0.005,
+    "max_leg_speed_rad_s": 8.803380563292095
+  },
+  "speed_command": {
+    "gain_rad_s_per_pct": [
+      0.10976021587437712,
+      0.10514547145067185
+    ],
+    "comment": "% = target rad/s / gain (motor units)"
+  },
+  "time_constant_s": 0.06209289060367418,
+  "fit_error_rad_s": {
+    "air": {
+      "current_sim": 1.716701549095066,
+      "fitted": 0.08192630448564145
+    },
+    "floor_laminate": {
+      "current_sim": 1.2046569503156888,
+      "fitted": 0.018235819153772974
+    },
+    "floor_carpet": {
+      "current_sim": 1.1797536248153913,
+      "fitted": 0.019775009016744942
+    }
+  },
+  "fake_truth": {
+    "damping": 0.02,
+    "effort_limit": 0.09,
+    "armature": 0.0012,
+    "frictionloss": 0.004,
+    "delay_steps": 9,
+    "gain": [
+      0.11,
+      0.105
+    ],
+    "top": [
+      9.5,
+      9.0
+    ],
+    "encoder_sign": [
+      1,
+      -1
+    ]
+  }
+}

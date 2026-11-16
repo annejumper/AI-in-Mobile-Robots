@@ -6,7 +6,7 @@
       09_onshape_robot/mjlab_task/export_policy.py model_1999.pt Walk-Real-Laminate
 
 Writes, next to this script (runIt.py brings them home to runs/<name>/):
-  policy_<floor>.onnx       the policy network, including its input normalization (run it with onnxruntime)
+  policy_<floor>.onnx       (policy_measured_<floor>.* for Walk-Measured-*) the policy network, including its input normalization (run it with onnxruntime)
   policy_<floor>.json       what the inputs and outputs mean, the control rate, and the speed scale
   policy_<floor>_check.npz  500 inputs recorded from a simulated run and the policy's outputs for them, so the laptop
                             can prove its ONNX copy gives the same answers (hardware/silly_walker_real.py verify)
@@ -24,10 +24,12 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
-if len(sys.argv) != 3 or not sys.argv[2].startswith("Walk-Real-"):
-  sys.exit("usage: export_policy.py model_1999.pt Walk-Real-Laminate   (or -Default / -Carpet)")
+if len(sys.argv) != 3 or not sys.argv[2].startswith(("Walk-Real-", "Walk-Measured-")):
+  sys.exit("usage: export_policy.py model_1999.pt Walk-Real-Laminate   (or -Default / -Carpet, or Walk-Measured-*)")
 checkpoint, TASK = Path(sys.argv[1]), sys.argv[2]
-floor = TASK.removeprefix("Walk-Real-").lower()
+measured = TASK.startswith("Walk-Measured-")
+floor = TASK.split("-")[-1].lower()
+stem = f"policy_{'measured_' if measured else ''}{floor}"   # policy_laminate / policy_measured_laminate
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 env_cfg = load_env_cfg(TASK, play=True)
@@ -39,7 +41,7 @@ runner.load(str(checkpoint), load_cfg={"actor": True}, strict=True, map_location
 policy = runner.get_inference_policy(device=device)
 
 # 1. The network, with its observation normalizer built in.
-runner.export_policy_to_onnx(".", f"policy_{floor}.onnx")
+runner.export_policy_to_onnx(".", f"{stem}.onnx")
 
 # 2. Reference pairs from a real simulated rollout (realistic inputs, not just random numbers).
 obs_log, act_log = [], []
@@ -50,7 +52,7 @@ with torch.no_grad():
     obs_log.append(obs["actor"][0].cpu().numpy().copy())
     act_log.append(action[0].cpu().numpy().copy())
     obs = env.step(action)[0]
-np.savez(f"policy_{floor}_check.npz", obs=np.array(obs_log, dtype=np.float32), action=np.array(act_log, dtype=np.float32))
+np.savez(f"{stem}_check.npz", obs=np.array(obs_log, dtype=np.float32), action=np.array(act_log, dtype=np.float32))
 
 # 3. What the numbers mean. The input order is the order of the actor terms in drive_task.py.
 groups = env.unwrapped.observation_manager.active_terms["actor"]
@@ -68,11 +70,12 @@ meta = {
     "last_action": "the policy's own previous output, [left, right]",
   },
   "outputs": "[left, right] in about -1..1; target leg speed = output x max_leg_speed_rad_s, positive = forward",
-  "max_leg_speed_rad_s": drive_task.MAX_WHEEL_SPEED,
+  "max_leg_speed_rad_s": float(env_cfg.actions["wheels"].scale),
+  "motor_model": drive_task.MOTOR_MODEL if measured else None,
   "target_speed_m_s": drive_task.TARGET_SPEED,
   "checkpoint": checkpoint.name,
 }
-Path(f"policy_{floor}.json").write_text(json.dumps(meta, indent=2))
+Path(f"{stem}.json").write_text(json.dumps(meta, indent=2))
 print(json.dumps(meta, indent=2))
-print(f"wrote policy_{floor}.onnx, policy_{floor}.json, policy_{floor}_check.npz")
+print(f"wrote {stem}.onnx, {stem}.json, {stem}_check.npz")
 env.close()

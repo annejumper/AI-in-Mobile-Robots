@@ -3,3 +3,5 @@ onnxruntime
 numpy
 # only for the --fake mode (MuJoCo model on the laptop instead of the robot):
 mujoco
+# characterize_motor.py: mujoco for `fit` (and --fake), matplotlib for motor_fit.png
+matplotlib

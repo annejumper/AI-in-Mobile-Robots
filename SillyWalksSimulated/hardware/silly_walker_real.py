@@ -9,6 +9,7 @@ into the 9 inputs the policy saw in simulation, runs the policy, and sends the t
     python silly_walker_real.py testdrive           # scripted straight walk (same as drive.py's), for sim vs real
     python silly_walker_real.py run laminate        # walk with the trained policy (default 10 s; add seconds to change)
     python silly_walker_real.py run laminate --fake # no robot: the same loop against the MuJoCo model on this laptop
+    python silly_walker_real.py run laminate --measured   # the Walk-Measured-* policy (policy_measured_laminate.*)
 
 walk_default.py, walk_laminate.py and walk_carpet.py next to this file are shortcuts for `run <floor>`.
 Every run is logged to real_runs/ (one row per control step) with a one-line summary in real_runs/summary.csv.
@@ -23,9 +24,10 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-CARD_SERIAL = "PUT_YOUR_CARD_NUMBER_HERE"   # <-- the number on your Double Motor's Connection Card
+CARD_SERIAL = "6056"   # <-- the number on your Double Motor's Connection Card
 POLICY_DIR = HERE / "policies"              # policy_<floor>.onnx / .json / _check.npz from export_policy.py
 CALIBRATION = HERE / "calibration.json"     # written by `calibrate`
+MOTOR_MODEL = HERE / "motor_model.json"     # written by `characterize_motor.py fit`: measured rad/s per % per motor
 RUNS = HERE / "real_runs"
 NOTIFY_MS = 20                              # sensor updates from the motor every 20 ms (policy runs every 40 ms)
 STILL_S = 1.5                               # seconds the robot sits still before walking (gyro bias is measured here)
@@ -230,12 +232,39 @@ class Calibration:
         return pct
 
 
+class LegSpeedMeter:
+    """Leg speeds from the encoders, measured over the last WINDOW_S (0.12 s = 3 policy steps).
+
+    The motor's readings arrive every ~30 ms, sometimes 60 ms, and often bunched together by Bluetooth, while the
+    policy runs every 40 ms. Differencing positions every 40 ms gave a false 0 rad/s whenever no new reading had
+    come in (about 1 step in 5), and jumped by 3+ rad/s around the true speed. Over 0.12 s the scatter is about
+    0.7 rad/s (measured on the motor characterization's speed sweep), close to the +-0.5 rad/s noise the policy was
+    trained with; the price is about 60 ms of lag."""
+    WINDOW_S = 0.12
+
+    def __init__(self, cal, pos, t):
+        from collections import deque
+        self.cal, self.hist = cal, deque([(t, np.array(pos, dtype=float))])
+
+    def update(self, pos, t):
+        pos = np.array(pos, dtype=float)
+        self.hist.append((t, pos))
+        while len(self.hist) > 2 and self.hist[1][0] <= t - self.WINDOW_S:
+            self.hist.popleft()
+        t0, p0 = self.hist[0]
+        return self.cal.leg_speeds(pos, p0, t - t0) if t > t0 else np.zeros(2)
+
+
 def load_calibration(fake):
     if fake:
         return Calibration(FAKE_CALIBRATION)
     if not CALIBRATION.exists():
         sys.exit("No calibration.json yet: run `python silly_walker_real.py calibrate` first.")
-    return Calibration(json.loads(CALIBRATION.read_text()))
+    c = json.loads(CALIBRATION.read_text())
+    if MOTOR_MODEL.exists():   # the motor characterization measured % -> speed over the whole range, not just at 40%
+        gain = json.loads(MOTOR_MODEL.read_text())["speed_command"]["gain_rad_s_per_pct"]
+        c["rad_s_per_pct"] = [gain[m] for m in c["leg_motor"]]
+    return Calibration(c)
 
 
 def record(robot, seconds, every=0.02):
@@ -335,9 +364,10 @@ def calibrate():
 # ---- running -----------------------------------------------------------------------------------------------------
 
 
-def load_policy(floor):
+def load_policy(floor, measured=False):
     import onnxruntime as ort
-    onnx_file, meta_file = POLICY_DIR / f"policy_{floor}.onnx", POLICY_DIR / f"policy_{floor}.json"
+    stem = f"policy_{'measured_' if measured else ''}{floor}"
+    onnx_file, meta_file = POLICY_DIR / f"{stem}.onnx", POLICY_DIR / f"{stem}.json"
     if not onnx_file.exists():
         sys.exit(f"No {onnx_file.relative_to(HERE)}: export it with export_policy.py and copy it into policies/.")
     meta = json.loads(meta_file.read_text())
@@ -353,9 +383,9 @@ def load_policy(floor):
     return policy, meta
 
 
-def verify(floor):
-    policy, meta = load_policy(floor)
-    check = np.load(POLICY_DIR / f"policy_{floor}_check.npz")
+def verify(floor, measured=False):
+    policy, meta = load_policy(floor, measured)
+    check = np.load(POLICY_DIR / f"policy_{'measured_' if measured else ''}{floor}_check.npz")
     worst = max(float(np.abs(policy(o) - a).max()) for o, a in zip(check["obs"], check["action"]))
     print(f"{meta['task']}: largest difference from the cluster's answers over {len(check['obs'])} inputs: {worst:.2e}")
     print("OK: the laptop runs the same policy." if worst < 1e-4 else "MISMATCH: re-export the policy.")
@@ -370,8 +400,8 @@ def home_legs(robot, cal):
         robot.move_leg_to(m, home[m])
 
 
-def run(floor, seconds=10.0, fake=False):
-    policy, meta = load_policy(floor)
+def run(floor, seconds=10.0, fake=False, measured=False):
+    policy, meta = load_policy(floor, measured)
     dt = meta["control_dt_s"]
     max_leg = meta["max_leg_speed_rad_s"]
     cal = load_calibration(fake)
@@ -379,7 +409,7 @@ def run(floor, seconds=10.0, fake=False):
     robot.connect()
     RUNS.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    log_path = RUNS / f"{'fake' if fake else 'real'}_{floor}_{stamp}.csv"
+    log_path = RUNS / f"{'fake' if fake else 'real'}_{'measured_' if measured else ''}{floor}_{stamp}.csv"
     try:
         home_legs(robot, cal)
         if not fake:
@@ -394,7 +424,8 @@ def run(floor, seconds=10.0, fake=False):
         yaw_start = robot.yaw()
         heading_gyro = 0.0
         last_action = np.zeros(2)
-        pos_before = robot.positions()
+        clock = (lambda: robot.d.time) if fake else time.perf_counter
+        meter = LegSpeedMeter(cal, robot.positions(), clock())
         rows = []
         print("  second   heading (deg)   leg speeds L/R (rad/s)   commands L/R (%)")
         steps = int(round(seconds / dt))
@@ -407,8 +438,7 @@ def run(floor, seconds=10.0, fake=False):
                 heading_gyro += rates[2] * dt
                 heading = heading_gyro
             pos_now = robot.positions()
-            legs = cal.leg_speeds(pos_now, pos_before, dt)
-            pos_before = pos_now
+            legs = meter.update(pos_now, clock())
             obs = np.concatenate([rates, [math.sin(heading), math.cos(heading)], legs, last_action])
             action = np.asarray(policy(obs), dtype=float)
             pct = cal.speed_command(action * max_leg)
@@ -448,10 +478,10 @@ def run(floor, seconds=10.0, fake=False):
         w = csv.writer(f)
         if new:
             w.writerow(["when", "mode", "floor", "seconds", "forward_m", "sideways_m", "heading_min_deg", "heading_max_deg", "log"])
-        w.writerow([stamp, "fake" if fake else "real", floor, seconds, round(fwd, 3), round(side, 3),
+        w.writerow([stamp, ("fake" if fake else "real") + ("_measured" if measured else ""), floor, seconds, round(fwd, 3), round(side, 3),
                     round(min(headings), 1), round(max(headings), 1), log_path.name])
     print(f"Heading stayed between {min(headings):+.1f} and {max(headings):+.1f} degrees.")
-    sim = SIM_RESULTS.get(floor)
+    sim = None if measured else SIM_RESULTS.get(floor)
     if sim:
         print(f"Simulation (Walk-Real-{floor.capitalize()}, 10 s): {sim}")
     print(f"Logged to {log_path.relative_to(HERE)} and real_runs/summary.csv")
@@ -481,19 +511,19 @@ def main(argv):
     if not argv or argv[0] not in ("verify", "calibrate", "testdrive", "run"):
         sys.exit(__doc__)
     cmd, rest = argv[0], argv[1:]
-    fake = "--fake" in rest
-    rest = [a for a in rest if a != "--fake"]
+    fake, measured = "--fake" in rest, "--measured" in rest
+    rest = [a for a in rest if a not in ("--fake", "--measured")]
     if cmd in ("verify", "run"):
         if not rest or rest[0] not in ("default", "laminate", "carpet"):
             sys.exit(f"usage: {cmd} default|laminate|carpet" + (" [seconds] [--fake]" if cmd == "run" else ""))
     if cmd == "verify":
-        verify(rest[0])
+        verify(rest[0], measured)
     elif cmd == "calibrate":
         calibrate()
     elif cmd == "testdrive":
         testdrive()
     else:
-        run(rest[0], float(rest[1]) if len(rest) > 1 else 10.0, fake)
+        run(rest[0], float(rest[1]) if len(rest) > 1 else 10.0, fake, measured)
 
 
 if __name__ == "__main__":

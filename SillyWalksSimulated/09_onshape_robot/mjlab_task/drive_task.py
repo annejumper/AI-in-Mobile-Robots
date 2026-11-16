@@ -9,12 +9,16 @@ Importing this file registers two tasks per floor in SURFACES:
   Walk-Real-<Floor>       hardware-ready: the policy sees only what the real Double Motor can measure (gyro, IMU heading,
                           leg speeds, its last command), with sensor noise, Bluetooth delay and randomized physics (25 Hz).
                           Export with export_policy.py and run on the robot with ../../hardware/.
+  Walk-Measured-<Floor>   Walk-Real, but with the motor measured on the real robot (hardware/characterize_motor.py):
+                          torque, inertia, friction, command delay and top speed from motor_model.json. Only
+                          registered when motor_model.json is found (next to this file, or in ../../hardware/).
 (see train.py / play.py next to it).
 Everything you will want to tune is in the constants block and the reward weights.
 """
 from __future__ import annotations
 
 import functools
+import json
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -85,6 +89,16 @@ REAL_NOISE = {"gyro": 0.15, "heading": 0.03, "leg_speed": 0.5}   # +- uniform no
 REAL_MAX_DELAY_STEPS = 1     # each reading may be up to one policy step (40 ms) old
 REAL_LEG_START = 0.3         # rad; legs are set by hand to the Onshape pose, so allow this much error
 
+# Measured motor (hardware/characterize_motor.py fit). runIt.py: add --with hardware/motor_model.json
+MOTOR_MODEL_FILE = next((p for p in (_HERE / "motor_model.json", _HERE.parent.parent / "hardware" / "motor_model.json")
+                         if p.exists()), None)
+MOTOR_MODEL = json.loads(MOTOR_MODEL_FILE.read_text())["mjlab"] if MOTOR_MODEL_FILE else None
+MEASURED_STRENGTH_RANGE = (0.85, 1.15)   # measured torque: randomize +-15% (was +-30% for the guessed motor)
+# What the first real runs showed (2026-11-16), used by Walk-Measured-*:
+MEASURED_NOISE = {**REAL_NOISE, "leg_speed": 1.0}   # leg speed over a 0.12 s window scatters ~0.7 rad/s (std)
+MEASURED_MAX_DELAY_STEPS = 2                         # readings every 30-60 ms + the 0.12 s window: up to 80 ms old
+MEASURED_FRICTION_RANGE = (0.5, 1.3)                 # legs slip on some steps on real laminate: allow much less grip
+
 _ROBOT = SceneEntityCfg("robot")
 
 
@@ -131,18 +145,21 @@ def _get_spec(surface: str) -> mujoco.MjSpec:
   return spec
 
 
-def _robot_cfg(surface: str) -> EntityCfg:
+def _robot_cfg(surface: str, motor: dict | None = None) -> EntityCfg:
+  if motor is None:   # the guessed motor: armature and frictionloss come from robot.xml
+    actuator = BuiltinPdActuatorCfg(   # stiffness 0 = no position target: the motor only chases the velocity asked for
+      target_names_expr=(LEFT, RIGHT), stiffness=0.0, damping=WHEEL_KD, effort_limit=WHEEL_TORQUE_LIMIT
+    )
+  else:               # the measured motor (motor_model.json); delays are in 5 ms physics steps
+    actuator = BuiltinPdActuatorCfg(
+      target_names_expr=(LEFT, RIGHT), stiffness=0.0, damping=motor["damping"], effort_limit=motor["effort_limit"],
+      armature=motor["armature"], frictionloss=motor["frictionloss"],
+      delay_min_lag=int(motor["delay_steps"][0]), delay_max_lag=int(motor["delay_steps"][1]),
+    )
   return EntityCfg(
     spec_fn=functools.partial(_get_spec, surface),
     init_state=EntityCfg.InitialStateCfg(pos=(0.0, 0.0, START_HEIGHT), joint_vel={".*": 0.0}),
-    articulation=EntityArticulationInfoCfg(
-      actuators=(
-        # stiffness 0 = no position target, so the motor only chases the velocity we ask for
-        BuiltinPdActuatorCfg(
-          target_names_expr=(LEFT, RIGHT), stiffness=0.0, damping=WHEEL_KD, effort_limit=WHEEL_TORQUE_LIMIT
-        ),
-      ),
-    ),
+    articulation=EntityArticulationInfoCfg(actuators=(actuator,)),
   )
 
 
@@ -196,7 +213,11 @@ def too_far_off_line(env: ManagerBasedRlEnv) -> torch.Tensor:
 # ---- environment ----------------------------------------------------------------------------------------
 
 
-def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False) -> ManagerBasedRlEnvCfg:
+def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False,
+                           motor: dict | None = None) -> ManagerBasedRlEnvCfg:
+  """motor: a measured motor model (MOTOR_MODEL) for Walk-Measured-*; needs real=True."""
+  assert motor is None or real, "the measured motor is only used with the hardware-ready observations"
+  max_leg_speed = motor["max_leg_speed_rad_s"] if motor else MAX_WHEEL_SPEED
   # Everything the simulator knows. The sim-only policy sees all of it; for Walk-Real-* only the critic does (the critic
   # only scores actions during training and is not used on the robot, so it may use information the robot lacks).
   full_terms = {
@@ -207,13 +228,15 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
     "last_action": ObservationTermCfg(func=last_action),
   }
   if real:
-    def sensed(func, noise):   # a real sensor reading: noisy and up to REAL_MAX_DELAY_STEPS old
-      return ObservationTermCfg(func=func, noise=Unoise(n_min=-noise, n_max=noise), delay_max_lag=REAL_MAX_DELAY_STEPS)
+    noise = MEASURED_NOISE if motor else REAL_NOISE
+    max_lag = MEASURED_MAX_DELAY_STEPS if motor else REAL_MAX_DELAY_STEPS
+    def sensed(func, amount):   # a real sensor reading: noisy and up to max_lag policy steps old
+      return ObservationTermCfg(func=func, noise=Unoise(n_min=-amount, n_max=amount), delay_max_lag=max_lag)
     # ORDER MATTERS: hardware/silly_walker_real.py builds its 9 inputs in exactly this order.
     actor_terms = {
-      "ang_vel": sensed(base_ang_vel, REAL_NOISE["gyro"]),          # IMU gyroscope, body frame (x fwd, y left, z up)
-      "heading": sensed(heading, REAL_NOISE["heading"]),            # IMU yaw
-      "wheel_vel": sensed(joint_vel_rel, REAL_NOISE["leg_speed"]),  # motor encoders (left, right)
+      "ang_vel": sensed(base_ang_vel, noise["gyro"]),          # IMU gyroscope, body frame (x fwd, y left, z up)
+      "heading": sensed(heading, noise["heading"]),            # IMU yaw
+      "wheel_vel": sensed(joint_vel_rel, noise["leg_speed"]),  # motor encoders (left, right)
       "last_action": ObservationTermCfg(func=last_action),          # what the policy sent last step
     }
   else:
@@ -225,7 +248,7 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
 
   actions: dict[str, ActionTermCfg] = {
     "wheels": JointVelocityActionCfg(
-      entity_name="robot", actuator_names=(LEFT, RIGHT), scale=MAX_WHEEL_SPEED, use_default_offset=True
+      entity_name="robot", actuator_names=(LEFT, RIGHT), scale=max_leg_speed, use_default_offset=True
     ),
   }
 
@@ -246,7 +269,7 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
       "floor_friction": EventTermCfg(   # textbook friction values, not measured: +-30%
         func=dr.geom_friction, mode="startup",
         params={"asset_cfg": SceneEntityCfg("robot", geom_names=("collision_.*",)), "operation": "scale",
-                "ranges": (0.7, 1.3), "shared_random": True},
+                "ranges": MEASURED_FRICTION_RANGE if motor else (0.7, 1.3), "shared_random": True},
       ),
       "motor_mass": EventTermCfg(   # scale reading and battery charge: +-10%
         func=dr.body_mass, mode="startup",
@@ -259,7 +282,8 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
       ),
       "motor_strength": EventTermCfg(   # real LEGO motor torque is not known exactly: +-30%
         func=dr.effort_limits, mode="startup",
-        params={"asset_cfg": SceneEntityCfg("robot"), "effort_limit_range": (0.7, 1.3), "operation": "scale"},
+        params={"asset_cfg": SceneEntityCfg("robot"), "operation": "scale",
+                "effort_limit_range": MEASURED_STRENGTH_RANGE if motor else (0.7, 1.3)},
       ),
     })
 
@@ -279,7 +303,7 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
   return ManagerBasedRlEnvCfg(
     scene=SceneCfg(
       terrain=TerrainEntityCfg(terrain_type="plane"),
-      entities={"robot": _robot_cfg(surface)},
+      entities={"robot": _robot_cfg(surface, motor)},
       num_envs=1,
       env_spacing=4.0,
     ),
@@ -305,7 +329,8 @@ def drive_straight_env_cfg(surface: str, play: bool = False, real: bool = False)
   )
 
 
-def drive_straight_ppo_runner_cfg(surface: str, real: bool = False) -> RslRlOnPolicyRunnerCfg:
+def drive_straight_ppo_runner_cfg(surface: str, real: bool = False, measured: bool = False) -> RslRlOnPolicyRunnerCfg:
+  name = "walk_measured" if measured else "walk_real" if real else "drive_straight"
   return RslRlOnPolicyRunnerCfg(
     actor=RslRlModelCfg(
       hidden_dims=(64, 64),
@@ -328,7 +353,8 @@ def drive_straight_ppo_runner_cfg(surface: str, real: bool = False) -> RslRlOnPo
       desired_kl=0.01,
       max_grad_norm=1.0,
     ),
-    experiment_name=f"{'walk_real' if real else 'drive_straight'}_{surface}",   # logs/rsl_rl/<this name>/
+    experiment_name=f"{name}_{surface}",   # logs/rsl_rl/<this name>/
+    clip_actions=1.0 if measured else None,   # measured motor: the policy cannot ask for more than its top speed
     logger="tensorboard",           # the default, wandb, needs an account and a login
     save_interval=50,
     num_steps_per_env=24,
@@ -343,4 +369,11 @@ for _surface in SURFACES:     # registers Drive-Straight-<Floor> (sim-only) and 
       env_cfg=drive_straight_env_cfg(_surface, real=_real),
       play_env_cfg=drive_straight_env_cfg(_surface, play=True, real=_real),
       rl_cfg=drive_straight_ppo_runner_cfg(_surface, real=_real),
+    )
+  if MOTOR_MODEL is not None:   # Walk-Measured-<Floor>: hardware-ready, with the measured motor
+    register_mjlab_task(
+      task_id=f"Walk-Measured-{_surface.capitalize()}",
+      env_cfg=drive_straight_env_cfg(_surface, real=True, motor=MOTOR_MODEL),
+      play_env_cfg=drive_straight_env_cfg(_surface, play=True, real=True, motor=MOTOR_MODEL),
+      rl_cfg=drive_straight_ppo_runner_cfg(_surface, real=True, measured=True),
     )

@@ -29,6 +29,8 @@ and position.
 |---|---|
 | `silly_walker_real.py` | Everything: `verify`, `calibrate`, `testdrive`, `run` (and `--fake`) |
 | `walk_default.py`, `walk_laminate.py`, `walk_carpet.py` | Shortcuts for `silly_walker_real.py run <floor>` |
+| `characterize_motor.py` | Motor characterization: spin the legs, measure speed and delay, fit a motor model for mjlab |
+| `motor_runs/`, `motor_model.json`, `motor_fit.png` | Its recordings, the fitted model, and real-vs-model plots |
 | `policies/` | The three exported policies: `.onnx` (network), `.json` (what the numbers mean), `_check.npz` (reference answers) |
 | `calibration.json` | Written by `calibrate` (not there until you run it) |
 | `real_runs/` | One CSV per run (every control step), plus `summary.csv` with one line per run |
@@ -74,6 +76,62 @@ how far forward and sideways it went (cm), and appends everything to `real_runs/
 
 `python silly_walker_real.py testdrive` repeats `drive.py`'s straight phase (both legs at 8 rad/s for 3 s, no policy):
 the simplest sim-vs-real check of the robot itself. The simulation goes about 23 cm.
+
+## Motor model: `characterize_motor.py`
+
+The simulated motor so far is a guess: a velocity servo with 0.05 N*m per rad/s, a 0.2 N*m limit, and the armature
+(0.005) and friction (0.1 N*m) onshape-to-robot writes by default, with no command delay. This script measures the real
+motor and fits those numbers, so a policy can be trained on the motor you actually have.
+
+```
+python characterize_motor.py air              # robot propped up so the legs spin freely, about 85 s
+python characterize_motor.py floor laminate   # walks 20/40/60/80/100%, about 21 s (also: default, carpet)
+python characterize_motor.py fit              # -> motor_model.json and motor_fit.png
+```
+
+Run `calibrate` first if you can (the floor run uses its leg directions and home pose). The **air** run does a speed
+sweep (+-5..100%), steps from rest (0 -> 20/50/80/100%), reversals (+60 -> -60%) and 10 s of random commands, both
+legs at once. The encoders are read every time the motor reports (about every 20 ms) with the time each reading
+arrived. The **floor** runs show how much speed the legs lose when they carry the robot.
+
+`fit` first reads off, with no model: rad/s per %, top speed (each direction), deadband, the delay until the leg first
+moves, and how fast it gets to speed. Then it replays every recorded command in the MuJoCo model of the Silly Walker
+and adjusts the mjlab motor until the simulated leg speeds match the recorded ones:
+
+| Fitted | mjlab setting | Seen in |
+|---|---|---|
+| command delay | `delay_min_lag` / `delay_max_lag` (5 ms steps, +-10 ms) | steps, random commands |
+| time constant (armature / damping) | `armature` | how fast speed builds up and dies away in the air |
+| damping (velocity gain) | `damping` | speed lost under load (floor runs) |
+| torque limit | `effort_limit` | floor runs at high % |
+| friction | `frictionloss` | the air speed shortfall at each % (tied to damping) |
+| top speed | the policy's action scale (`max_leg_speed_rad_s`) | speed sweep at 90-100% |
+
+In the air, damping, armature and friction scaled together give exactly the same leg motion, so only their ratio, the
+time constant, can be measured there. The floor runs measure how strong the motor is. Without floor runs, the torque
+numbers are only loosely measured.
+
+**Tested without hardware:** `air --fake`, `floor laminate --fake`, `floor carpet --fake`, then `fit --fake` record a
+MuJoCo motor with hidden values (`FAKE_TRUTH`: 45 ms delay, 60 ms time constant, damping 0.02, limit 0.09 N*m)
+reported in whole degrees every 20 ms. The fit got back 55 ms, 62 ms, 0.021 and 0.100, with leg-speed errors of
+0.08 rad/s in the air and 0.02 on the floors. drive_task.py's current motor had 1.7 and 1.2 rad/s errors on the same
+recordings. Fake files are named `fake_*` / `motor_model_fake.json` and never reach training.
+
+**Training with the measured motor.** Once `motor_model.json` exists, `drive_task.py` also registers
+`Walk-Measured-Default/-Laminate/-Carpet`: Walk-Real (same sensors, noise, delays, randomization) with the measured
+motor, its torque randomized +-15% instead of +-30%, and the policy limited to the measured top speed. Train on the
+cluster with the model file sent along:
+
+```
+python3 runIt.py --gpu --time 01:00:00 --mem 16G --cpus 4 --with 09_onshape_robot/mjlab_task/drive_task.py \
+  --with 09_onshape_robot/onshape --with hardware/motor_model.json \
+  09_onshape_robot/mjlab_task/train.py Walk-Measured-Laminate --env.scene.num-envs 4096 --agent.max-iterations 2000
+```
+
+Export it with `export_policy.py model_1999.pt Walk-Measured-Laminate` (adding `--with hardware/motor_model.json`),
+which writes `policy_measured_laminate.*`. Copy those into `policies/`, then run
+`python silly_walker_real.py run laminate --measured`. When `motor_model.json` exists, every run (measured or not)
+turns rad/s into % with the measured gain of each motor, instead of the single 40% reading from `calibrate`.
 
 ## Comparing with the simulation
 
