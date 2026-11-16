@@ -29,8 +29,10 @@ CALIBRATION = HERE / "calibration.json"     # written by `calibrate`
 RUNS = HERE / "real_runs"
 NOTIFY_MS = 20                              # sensor updates from the motor every 20 ms (policy runs every 40 ms)
 STILL_S = 1.5                               # seconds the robot sits still before walking (gyro bias is measured here)
-SIM_RESULTS = {                             # Walk-Real-* simulation results for the same 10 s, filled in from make_video.py
-    "default": None, "laminate": None, "carpet": None,
+SIM_RESULTS = {                             # Walk-Real-* in simulation, same 10 s (make_video.py, results/hardware_ready/)
+    "default": "0.72 m forward, ends 7 cm to the left, heading between -13 and +24 deg",
+    "laminate": "0.56 m forward, ends 0 cm sideways, heading between -18 and +15 deg",
+    "carpet": "0.50 m forward, ends 0 cm sideways, heading between -23 and +12 deg",
 }
 TESTDRIVE = (8.0, 3.0)                      # rad/s, seconds: drive.py's straight phase (sim: about 0.23 m)
 
