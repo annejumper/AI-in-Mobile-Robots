@@ -10,3 +10,7 @@ tools/board_secrets.py
 snaps/
 unoq/*/cmd.txt
 unoq/*/mode.txt
+# RStudio session files
+.Rhistory
+.RData
+.Rproj.user/
