@@ -4,3 +4,6 @@ when,mode,floor,seconds,forward_m,sideways_m,heading_min_deg,heading_max_deg,log
 20261116-000839,fake,carpet,10.0,0.562,-0.08,-21.2,9.7,fake_carpet_20261116-000839.csv
 20261116-172140,real,laminate,10.0,0.48,-0.04,-24.3,45.8,real_laminate_20261116-172140.csv
 20261116-172719,real,laminate,10.0,0.5,-0.03,-21.5,30.7,real_laminate_20261116-172719.csv
+20261116-175423,real_measured,laminate,10.0,0.405,0.01,-22.8,26.6,real_measured_laminate_20261116-175423.csv
+20261116-175638,real_measured,laminate,10.0,0.41,0.04,-24.7,17.8,real_measured_laminate_20261116-175638.csv
+20261116-175747,real,laminate,10.0,0.32,-0.1,-72.6,17.4,real_laminate_20261116-175747.csv

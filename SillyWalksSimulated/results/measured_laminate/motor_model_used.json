@@ -1,0 +1,66 @@
+{
+  "what": "Double Motor model measured by hardware/characterize_motor.py; drive_task.py reads the 'mjlab' part",
+  "fake": false,
+  "runs": [
+    "real_air_20261116-171633.json",
+    "real_floor_laminate_20261116-171723.json"
+  ],
+  "measured": {
+    "per_motor": [
+      {
+        "gain_rad_s_per_pct": 0.181304364077103,
+        "top_speed_rad_s": 17.292427707056277,
+        "droop_rad_s": 0.31571407077157193,
+        "deadband_pct": 1.7413484357017945,
+        "top_positive_rad_s": 16.859767470924837,
+        "top_negative_rad_s": 17.72508794318772
+      },
+      {
+        "gain_rad_s_per_pct": 0.18150337543084533,
+        "top_speed_rad_s": 17.22608894949813,
+        "droop_rad_s": 0.3286039230634535,
+        "deadband_pct": 1.8104562644271869,
+        "top_positive_rad_s": 16.864669367237152,
+        "top_negative_rad_s": 17.58750853175911
+      }
+    ],
+    "notify_interval_s": 0.03020000000000067,
+    "first_movement_s": {
+      "median": 0.09569999999999901,
+      "p10": 0.07319999999999993,
+      "p90": 0.12605999999999984
+    },
+    "time_to_63pct_s": 0.12879999999999825,
+    "sensor_lag_assumed_s": 0.015
+  },
+  "mjlab": {
+    "damping": 0.04788016403492869,
+    "effort_limit": 0.19152065613971475,
+    "armature": 0.002394008201746434,
+    "frictionloss": 0.015425025617738593,
+    "delay_steps": [
+      5,
+      9
+    ],
+    "physics_dt_s": 0.005,
+    "max_leg_speed_rad_s": 17.22608894949813
+  },
+  "speed_command": {
+    "gain_rad_s_per_pct": [
+      0.181304364077103,
+      0.18150337543084533
+    ],
+    "comment": "% = target rad/s / gain (motor units)"
+  },
+  "time_constant_s": 0.049999999999999996,
+  "fit_error_rad_s": {
+    "air": {
+      "current_sim": 2.9722709483915293,
+      "fitted": 1.157034761470713
+    },
+    "floor_laminate": {
+      "current_sim": 1.5154237600674982,
+      "fitted": 0.8211039716662221
+    }
+  }
+}
