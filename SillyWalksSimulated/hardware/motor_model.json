@@ -3,7 +3,8 @@
   "fake": false,
   "runs": [
     "real_air_20261116-171633.json",
-    "real_floor_laminate_20261116-171723.json"
+    "real_floor_laminate_20261116-171723.json",
+    "real_floor_carpet_20261117-084226.json"
   ],
   "measured": {
     "per_motor": [
@@ -34,10 +35,10 @@
     "sensor_lag_assumed_s": 0.015
   },
   "mjlab": {
-    "damping": 0.04788016403492869,
-    "effort_limit": 0.19152065613971475,
-    "armature": 0.002394008201746434,
-    "frictionloss": 0.015425025617738593,
+    "damping": 0.023940082017464344,
+    "effort_limit": 0.09576032806985738,
+    "armature": 0.001197004100873217,
+    "frictionloss": 0.0077125128088692966,
     "delay_steps": [
       5,
       9
@@ -56,11 +57,15 @@
   "fit_error_rad_s": {
     "air": {
       "current_sim": 2.9722709483915293,
-      "fitted": 1.157034761470713
+      "fitted": 1.1563014538161729
     },
     "floor_laminate": {
       "current_sim": 1.5154237600674982,
-      "fitted": 0.8211039716662221
+      "fitted": 0.7716874369947799
+    },
+    "floor_carpet": {
+      "current_sim": 1.5086971126525135,
+      "fitted": 0.7723051090812347
     }
   }
 }
