@@ -1,0 +1,84 @@
+{
+ "route": "Classroom to Nolop (filmed)",
+ "kind": "test",
+ "person": "Anne",
+ "use": false,
+ "n_strides": 59,
+ "segments": [
+  {
+   "start": 1,
+   "end": 2,
+   "label": "straight"
+  },
+  {
+   "start": 3,
+   "end": 3,
+   "label": "right"
+  },
+  {
+   "start": 4,
+   "end": 21,
+   "label": "straight"
+  },
+  {
+   "start": 22,
+   "end": 23,
+   "label": "left"
+  },
+  {
+   "start": 24,
+   "end": 24,
+   "label": "straight"
+  },
+  {
+   "start": 25,
+   "end": 33,
+   "label": "stairs_down"
+  },
+  {
+   "start": 34,
+   "end": 34,
+   "label": "straight"
+  },
+  {
+   "start": 35,
+   "end": 37,
+   "label": "stairs_down"
+  },
+  {
+   "start": 38,
+   "end": 38,
+   "label": "straight"
+  },
+  {
+   "start": 39,
+   "end": 41,
+   "label": "uturn_left"
+  },
+  {
+   "start": 42,
+   "end": 48,
+   "label": "straight"
+  },
+  {
+   "start": 49,
+   "end": 50,
+   "label": "left"
+  },
+  {
+   "start": 51,
+   "end": 52,
+   "label": "stairs_up"
+  },
+  {
+   "start": 53,
+   "end": 56,
+   "label": "straight"
+  },
+  {
+   "start": 57,
+   "end": 59,
+   "label": "arrive"
+  }
+ ]
+}
