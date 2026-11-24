@@ -1,0 +1,18 @@
+{
+ "id": "20261123_233624_Anne",
+ "person": "Anne",
+ "route": "Classroom to Nolop",
+ "kind": "demo",
+ "started": "2026-11-23 23:36:24",
+ "duration_s": 107.1,
+ "strides": 53,
+ "steps": 106,
+ "dist_m": 47.6,
+ "stair_strides": 13,
+ "marks": 15,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "mode": "record",
+ "fixes": 0,
+ "policy": null
+}

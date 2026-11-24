@@ -1,0 +1,94 @@
+{
+ "route": "Classroom to Nolop",
+ "kind": "demo",
+ "person": "Ani",
+ "use": true,
+ "n_strides": 58,
+ "segments": [
+  {
+   "start": 1,
+   "end": 1,
+   "label": "straight"
+  },
+  {
+   "start": 2,
+   "end": 2,
+   "label": "right"
+  },
+  {
+   "start": 3,
+   "end": 21,
+   "label": "straight"
+  },
+  {
+   "start": 22,
+   "end": 22,
+   "label": "left"
+  },
+  {
+   "start": 23,
+   "end": 23,
+   "label": "straight"
+  },
+  {
+   "start": 24,
+   "end": 26,
+   "label": "stairs_down"
+  },
+  {
+   "start": 27,
+   "end": 27,
+   "label": "stairs_down"
+  },
+  {
+   "start": 28,
+   "end": 31,
+   "label": "stairs_down"
+  },
+  {
+   "start": 32,
+   "end": 33,
+   "label": "straight"
+  },
+  {
+   "start": 34,
+   "end": 36,
+   "label": "stairs_down"
+  },
+  {
+   "start": 37,
+   "end": 40,
+   "label": "uturn_left"
+  },
+  {
+   "start": 41,
+   "end": 47,
+   "label": "straight"
+  },
+  {
+   "start": 48,
+   "end": 49,
+   "label": "left"
+  },
+  {
+   "start": 50,
+   "end": 52,
+   "label": "straight"
+  },
+  {
+   "start": 53,
+   "end": 53,
+   "label": "stairs_up"
+  },
+  {
+   "start": 54,
+   "end": 57,
+   "label": "straight"
+  },
+  {
+   "start": 58,
+   "end": 58,
+   "label": "arrive"
+  }
+ ]
+}

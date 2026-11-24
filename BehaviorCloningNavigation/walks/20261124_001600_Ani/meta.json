@@ -1,0 +1,18 @@
+{
+ "id": "20261124_001600_Ani",
+ "person": "Ani",
+ "route": "Classroom to Nolop",
+ "kind": "demo",
+ "started": "2026-11-24 00:16:00",
+ "duration_s": 63.6,
+ "strides": 55,
+ "steps": 110,
+ "dist_m": 50.5,
+ "stair_strides": 13,
+ "marks": 16,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "mode": "record",
+ "fixes": 0,
+ "policy": null
+}

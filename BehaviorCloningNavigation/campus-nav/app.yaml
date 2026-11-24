@@ -1,0 +1,7 @@
+name: Campus Nav
+description: "Ankle-worn MPU-6050 campus navigator built on the StepCounter: counts strides with the step net, tracks heading with the gyro and height with ZUPT (stairs), and records demonstration walks for behavior cloning. Phone page at port 7000."
+icon: 🧭
+version: "0.1.0"
+ports: []
+bricks:
+  - arduino:web_ui

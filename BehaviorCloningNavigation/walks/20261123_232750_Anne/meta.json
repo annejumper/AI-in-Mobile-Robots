@@ -1,0 +1,27 @@
+{
+ "id": "20261123_232750_Anne",
+ "person": "Anne",
+ "route": "Nolop Practice 1",
+ "kind": "test",
+ "started": "2026-11-23 23:27:50",
+ "duration_s": 87.8,
+ "strides": 36,
+ "steps": 72,
+ "dist_m": 30.6,
+ "stair_strides": 4,
+ "marks": 4,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "mode": "navigate",
+ "fixes": 4,
+ "policy": {
+  "trained": "2026-11-23 18:17",
+  "walks": [
+   "20261123_225238_Anne"
+  ],
+  "people": [
+   "Anne"
+  ],
+  "examples": 37
+ }
+}

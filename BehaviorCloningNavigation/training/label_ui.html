@@ -1,0 +1,308 @@
+<!doctype html>
+<!-- Labeling page for recorded walks, served by training/label_walks.py.
+     Left: the walks. Right: the selected walk's heading chart (one dot per
+     stride, coloured by label, your taps as flags) and its segments, which
+     you can relabel, move, split and merge, then Save. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Walk Labels</title>
+  <style>
+    :root {
+      --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #dcdcd6;
+      --accent: #1f6feb; --accent-fg: #fff; --bad: #c62828; --ok: #1a7f4b;
+      --grid: #e8e7e3; --ink: #52514e;
+      --l-straight: #9a9a94; --l-left: #2a78d6; --l-right: #eb6834;
+      --l-stairs_up: #1baf7a; --l-stairs_down: #8e5bd0; --l-arrive: #1d1d1b;
+      --l-uturn_left: #0b4f9c; --l-uturn_right: #a8401a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161616; --fg: #ededea; --muted: #9a9a94; --card: #222221; --line: #3a3a38;
+        --accent: #4b8ef5; --accent-fg: #0b0b0b; --bad: #ef5350; --ok: #3cc47c;
+        --grid: #2e2e2c; --ink: #c3c2b7;
+        --l-straight: #7a7a74; --l-left: #3987e5; --l-right: #d95926;
+        --l-stairs_up: #199e70; --l-stairs_down: #9d6ee0; --l-arrive: #ededea;
+        --l-uturn_left: #7fb3f5; --l-uturn_right: #f59a6e;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+    .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
+    @media (max-width: 800px) { .app { grid-template-columns: 1fr; } }
+    aside { border-right: 1px solid var(--line); padding: 16px; background: var(--card); }
+    main { padding: 16px 20px; min-width: 0; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    h2 { font-size: 16px; margin: 0; }
+    button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+             border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    input, select { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line);
+                    background: var(--bg); color: var(--fg); }
+    .muted { color: var(--muted); }
+    #msg { font-size: 13px; margin: 8px 0; min-height: 18px; }
+    .walk { padding: 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; }
+    .walk:hover { background: var(--bg); }
+    .walk.on { border-color: var(--accent); background: var(--bg); }
+    .walk .t { font-weight: 600; }
+    .walk .s { font-size: 12px; color: var(--muted); }
+    .badge { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 0 6px; margin-left: 4px; }
+    .badge.done { color: var(--ok); border: 1px solid var(--ok); }
+    .badge.todo { color: var(--muted); border: 1px solid var(--line); }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 10px 0; }
+    .meta label { display: flex; gap: 6px; align-items: center; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; }
+    canvas { width: 100%; height: 300px; display: block; cursor: crosshair; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-top: 6px; }
+    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+                           background: var(--c); margin-right: 5px; vertical-align: -1px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 5px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; border-top: 0; }
+    td.num { font-variant-numeric: tabular-nums; text-align: right; }
+    tr.sel td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    .hidden { display: none; }
+    .help { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Walks</h1>
+    <button id="pull">Copy new walks from board</button>
+    <div id="msg" class="muted"></div>
+    <div id="walks"></div>
+  </aside>
+  <main>
+    <div id="empty" class="muted">Pick a walk on the left.</div>
+    <div id="editor" class="hidden">
+      <h2 id="title"></h2>
+      <div class="meta">
+        <label>Route <input id="route" size="26"></label>
+        <label>Person <input id="person" size="10"></label>
+        <label>Kind <select id="kind"></select></label>
+        <label><input type="checkbox" id="use"> Train on this walk</label>
+      </div>
+      <div class="card">
+        <canvas id="chart"></canvas>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="toolbar">
+        <button class="primary" id="save">Save labels</button>
+        <button id="split" disabled>Split at selected stride</button>
+        <button id="reset">Back to automatic</button>
+        <span id="savestate" class="muted"></span>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>#</th><th>Label</th><th>Strides</th><th class="num">Distance</th>
+            <th class="num">Turn</th><th class="num">Height</th><th>Your taps</th><th></th></tr></thead>
+          <tbody id="segs"></tbody>
+        </table>
+      </div>
+      <p class="help">Click the chart to select a stride. A segment's ◀ ▶ move its end by one stride.
+        "Merge ↓" joins a segment with the next one (keeping this label). A turn should cover the stride(s)
+        where you turned; "arrive" should be the last stride. Save writes labels.json and labels.csv.</p>
+    </div>
+  </main>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let walk = null, segs = [], sel = null, dirty = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+async function loadList(selectId) {
+  const list = await api("/api/walks");
+  $("walks").innerHTML = list.slice().reverse().map((w) => `
+    <div class="walk ${walk && walk.id === w.id ? "on" : ""}" data-id="${w.id}">
+      <div class="t">${esc(w.route || "(no route)")}
+        <span class="badge ${w.reviewed ? "done" : "todo"}">${w.reviewed ? (w.use ? "labeled" : "labeled · not used") : "to review"}</span></div>
+      <div class="s">${esc(w.kind)} · ${esc(w.person)} · ${esc(w.started)}${w.steps != null ? ` · ${w.steps} steps` : ""}</div>
+    </div>`).join("") || '<span class="muted">No walks yet. Plug in the board and press "Copy".</span>';
+  document.querySelectorAll(".walk").forEach((el) => el.onclick = () => openWalk(el.dataset.id));
+  if (selectId) openWalk(selectId);
+}
+
+async function openWalk(id) {
+  if (dirty && !confirm("You have unsaved changes. Leave this walk?")) return;
+  $("msg").textContent = "Loading…";
+  walk = await api(`/api/walk/${id}`);
+  $("msg").textContent = walk.stale ? "The strides changed since you labeled this walk, so the labels were reset to automatic." : "";
+  segs = walk.segments.map((s) => ({ ...s }));
+  sel = null; dirty = false;
+  $("empty").classList.add("hidden"); $("editor").classList.remove("hidden");
+  $("title").textContent = `${walk.id} · ${walk.strides.length} strides`;
+  $("route").value = walk.route || ""; $("person").value = walk.person || "";
+  $("kind").innerHTML = walk.kinds.map((k) => `<option ${k === walk.kind ? "selected" : ""}>${k}</option>`).join("");
+  $("use").checked = !!walk.use;
+  $("legend").innerHTML = walk.labels.map((l) => `<span style="--c: var(--l-${l})">${l}</span>`).join("") +
+    '<span style="--c: var(--ink)">⚑ your taps</span>';
+  document.querySelectorAll(".walk").forEach((el) => el.classList.toggle("on", el.dataset.id === id));
+  render();
+}
+
+const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function labelAt(i) {                     // label of stride i (1-based)
+  for (const s of segs) if (i >= s.start && i <= s.end) return s.label;
+  return "straight";
+}
+
+function markStride(t) {                  // fractional stride position of a tap at time t
+  const st = walk.strides;
+  if (!st.length) return 1;
+  if (t <= st[0].t_s) return 1;
+  for (let i = 1; i < st.length; i++)
+    if (t <= st[i].t_s) return i + (t - st[i - 1].t_s) / (st[i].t_s - st[i - 1].t_s);
+  return st.length;
+}
+
+function setDirty(v = true) { dirty = v; $("savestate").textContent = v ? "Unsaved changes" : "Saved ✓"; }
+
+function normalize() {                   // keep segments back to back; drop any left empty
+  for (let i = 1; i < segs.length; i++) segs[i].start = segs[i - 1].end + 1;
+  segs = segs.filter((s) => s.end >= s.start);
+  for (let i = 1; i < segs.length; i++) segs[i].start = segs[i - 1].end + 1;
+}
+
+function render() { drawChart(); drawTable(); $("split").disabled = sel == null; }
+
+function drawTable() {
+  const st = walk.strides;
+  $("segs").innerHTML = segs.map((s, i) => {
+    const part = st.slice(s.start - 1, s.end);
+    const dist = part.reduce((a, x) => a + x.dist_m, 0);
+    const turn = part.reduce((a, x) => a + x.dheading_deg, 0);
+    const dz = part.reduce((a, x) => a + x.dz_m, 0);
+    const t0 = st[s.start - 1].t_s - (s.start > 1 ? (st[s.start - 1].t_s - st[s.start - 2].t_s) : 1.5);
+    const taps = walk.marks.filter((m) => m.t_s > t0 && m.t_s <= st[s.end - 1].t_s + 0.5).map((m) => m.kind);
+    const isSel = sel != null && sel >= s.start && sel <= s.end;
+    return `<tr class="${isSel ? "sel" : ""}">
+      <td>${i + 1}</td>
+      <td><span class="swatch" style="background: var(--l-${s.label})"></span>
+        <select data-i="${i}" class="lab">${walk.labels.map((l) => `<option ${l === s.label ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+      <td>${s.start === s.end ? s.start : `${s.start}–${s.end}`} <span class="muted">(${s.end - s.start + 1})</span></td>
+      <td class="num">${dist.toFixed(1)} m</td>
+      <td class="num">${turn >= 0 ? "+" : ""}${turn.toFixed(0)}°</td>
+      <td class="num">${dz >= 0 ? "+" : ""}${dz.toFixed(2)} m</td>
+      <td class="muted">${esc(taps.join(", "))}</td>
+      <td>${i < segs.length - 1 ? `<button data-i="${i}" class="lt" title="end one stride earlier">◀</button>
+          <button data-i="${i}" class="rt" title="end one stride later">▶</button>
+          <button data-i="${i}" class="mg">Merge ↓</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  document.querySelectorAll("select.lab").forEach((el) => el.onchange = () => { segs[+el.dataset.i].label = el.value; setDirty(); render(); });
+  document.querySelectorAll("button.lt").forEach((el) => el.onclick = () => {
+    const i = +el.dataset.i; if (segs[i].end > segs[i].start) { segs[i].end--; normalize(); setDirty(); render(); } });
+  document.querySelectorAll("button.rt").forEach((el) => el.onclick = () => {
+    const i = +el.dataset.i;
+    if (segs[i].end < walk.strides.length - 1) { segs[i].end++; normalize(); setDirty(); render(); } });
+  document.querySelectorAll("button.mg").forEach((el) => el.onclick = () => {
+    const i = +el.dataset.i; segs[i].end = segs[i + 1].end; segs.splice(i + 1, 1); normalize(); setDirty(); render(); });
+}
+
+let geom = null;
+function drawChart() {
+  const c = $("chart"), dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const st = walk.strides, n = st.length;
+  if (!n) { g.fillStyle = css("--muted"); g.fillText("No strides in this walk", 20, 30); return; }
+  const L = 52, R = 12, T = 22, B = 64, dzH = 36;
+  const hs = st.map((s) => s.heading_deg);
+  let lo = Math.min(...hs), hi = Math.max(...hs);
+  lo = Math.floor((lo - 20) / 90) * 90; hi = Math.ceil((hi + 20) / 90) * 90;
+  const x = (i) => L + (n === 1 ? 0.5 : (i - 1) / (n - 1)) * (W - L - R);
+  const y = (h) => T + (hi - h) / (hi - lo) * (H - T - B);
+  geom = { x, n, L, R, W };
+  // segment bands
+  segs.forEach((s) => {
+    const x0 = x(s.start) - (W - L - R) / Math.max(n - 1, 1) / 2, x1 = x(s.end) + (W - L - R) / Math.max(n - 1, 1) / 2;
+    g.fillStyle = css(`--l-${s.label}`); g.globalAlpha = s.label === "straight" ? 0.06 : 0.16;
+    g.fillRect(Math.max(L, x0), T, Math.min(W - R, x1) - Math.max(L, x0), H - T - B + dzH);
+    g.globalAlpha = 1;
+  });
+  // grid every 90 degrees
+  g.strokeStyle = css("--grid"); g.fillStyle = css("--ink"); g.font = "11px system-ui"; g.lineWidth = 1;
+  for (let h = lo; h <= hi; h += 90) {
+    g.beginPath(); g.moveTo(L, y(h)); g.lineTo(W - R, y(h)); g.stroke();
+    g.textAlign = "right"; g.fillText(`${h}°`, L - 6, y(h) + 4);
+  }
+  g.save(); g.translate(12, T + (H - T - B) / 2); g.rotate(-Math.PI / 2); g.textAlign = "center";
+  g.fillText("heading (+ = left)", 0, 0); g.restore();
+  // heading line + stride dots
+  g.strokeStyle = css("--ink"); g.lineWidth = 1.5; g.beginPath();
+  st.forEach((s, i) => (i ? g.lineTo(x(i + 1), y(s.heading_deg)) : g.moveTo(x(1), y(s.heading_deg))));
+  g.stroke();
+  st.forEach((s, i) => {
+    g.fillStyle = css(`--l-${labelAt(i + 1)}`);
+    g.beginPath(); g.arc(x(i + 1), y(s.heading_deg), sel === i + 1 ? 6 : 3.5, 0, 2 * Math.PI); g.fill();
+    if (s.source === "board") { g.strokeStyle = css("--muted"); g.stroke(); }
+  });
+  // height change bars
+  const base = H - B + dzH / 2 + 4;
+  g.fillStyle = css("--muted"); g.textAlign = "right"; g.fillText("height", L - 6, base + 4);
+  st.forEach((s, i) => {
+    const h = Math.max(-1, Math.min(1, s.dz_m / 0.45)) * (dzH / 2);
+    g.fillStyle = css(Math.abs(s.dz_m) >= 0.2 ? (s.dz_m > 0 ? "--l-stairs_up" : "--l-stairs_down") : "--grid");
+    g.fillRect(x(i + 1) - 2, base - Math.max(h, 0), 4, Math.abs(h) || 1);
+  });
+  // your taps
+  g.textAlign = "center"; g.font = "11px system-ui";
+  walk.marks.forEach((m) => {
+    const px = x(markStride(m.t_s));
+    g.strokeStyle = css("--ink"); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(px, T); g.lineTo(px, H - B + dzH); g.stroke(); g.setLineDash([]);
+    g.fillStyle = css("--ink"); g.fillText(`⚑${m.kind}`, px, T - 6);
+  });
+  // stride axis
+  g.fillStyle = css("--muted"); g.textAlign = "center";
+  const step = Math.max(1, Math.round(n / 15));
+  for (let i = 1; i <= n; i += step) g.fillText(i, x(i), H - 6);
+  g.textAlign = "left"; g.fillText("stride", W - R - 34, H - 18);
+}
+
+$("chart").onclick = (e) => {
+  if (!geom) return;
+  const r = $("chart").getBoundingClientRect(), px = e.clientX - r.left;
+  const i = Math.round((px - geom.L) / (geom.W - geom.L - geom.R) * (geom.n - 1)) + 1;
+  sel = Math.max(1, Math.min(geom.n, i)); render();
+};
+$("split").onclick = () => {
+  const i = segs.findIndex((s) => sel >= s.start && sel <= s.end);
+  if (i < 0 || segs[i].start === sel) return;
+  segs.splice(i + 1, 0, { start: sel, end: segs[i].end, label: segs[i].label });
+  segs[i].end = sel - 1; setDirty(); render();
+};
+$("reset").onclick = () => {
+  if (!confirm("Throw away your edits and go back to the automatic labels?")) return;
+  segs = walk.auto_segments.map((s) => ({ ...s })); setDirty(); render();
+};
+["route", "person", "kind", "use"].forEach((id) => $(id).onchange = () => setDirty());
+$("save").onclick = async () => {
+  normalize();
+  const r = await api(`/api/walk/${walk.id}`, { segments: segs, route: $("route").value.trim(),
+    person: $("person").value.trim(), kind: $("kind").value, use: $("use").checked });
+  if (r.ok) { setDirty(false); loadList(); } else alert("Save failed");
+};
+$("pull").onclick = async () => {
+  $("msg").textContent = "Copying…";
+  const r = await api("/api/pull", {});
+  $("msg").textContent = r.message; loadList();
+};
+window.onresize = () => walk && drawChart();
+window.onbeforeunload = (e) => { if (dirty) { e.preventDefault(); return ""; } };
+loadList(new URLSearchParams(location.search).get("walk"));    // ?walk=<id> opens one directly
+</script>
+</body>
+</html>

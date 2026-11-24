@@ -1,0 +1,34 @@
+{
+ "id": "20261124_003408_Ani",
+ "person": "Ani",
+ "route": "Classroom to Nolop",
+ "kind": "dagger",
+ "started": "2026-11-24 00:34:08",
+ "duration_s": 92.0,
+ "strides": 54,
+ "steps": 108,
+ "dist_m": 45.0,
+ "stair_strides": 13,
+ "marks": 5,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "mode": "navigate",
+ "fixes": 5,
+ "policy": {
+  "trained": "2026-11-23 19:27",
+  "walks": [
+   "20261123_233624_Anne",
+   "20261123_233924_Anne",
+   "20261123_234340_Anne",
+   "20261124_000429_Anne",
+   "20261124_001044_Ani",
+   "20261124_001345_Ani",
+   "20261124_001600_Ani"
+  ],
+  "people": [
+   "Ani",
+   "Anne"
+  ],
+  "examples": 381
+ }
+}

@@ -1,0 +1,17 @@
+t_s,kind,stride,heading_deg
+2.36,straight,0,-1.1
+4.86,right,1,1.1
+5.98,straight,2,-86.0
+24.9,left,19,-114.4
+26.19,straight,20,-41.0
+27.86,stairs,21,-13.1
+36.11,straight,30,4.3
+37.35,stairs,31,8.9
+40.0,straight,32,18.1
+41.55,left,34,32.1
+43.35,left,36,114.3
+45.04,straight,37,215.6
+53.54,left,45,202.2
+54.85,straight,45,271.7
+55.91,stairs,46,286.0
+58.38,straight,49,282.7

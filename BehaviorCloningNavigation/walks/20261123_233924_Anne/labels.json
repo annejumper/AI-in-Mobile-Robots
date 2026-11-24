@@ -1,0 +1,89 @@
+{
+ "route": "Classroom to Nolop",
+ "kind": "demo",
+ "person": "Anne",
+ "use": true,
+ "n_strides": 52,
+ "segments": [
+  {
+   "start": 1,
+   "end": 2,
+   "label": "straight"
+  },
+  {
+   "start": 3,
+   "end": 3,
+   "label": "right"
+  },
+  {
+   "start": 4,
+   "end": 18,
+   "label": "straight"
+  },
+  {
+   "start": 19,
+   "end": 19,
+   "label": "left"
+  },
+  {
+   "start": 20,
+   "end": 26,
+   "label": "stairs_down"
+  },
+  {
+   "start": 27,
+   "end": 27,
+   "label": "straight"
+  },
+  {
+   "start": 28,
+   "end": 28,
+   "label": "stairs_down"
+  },
+  {
+   "start": 29,
+   "end": 31,
+   "label": "stairs_down"
+  },
+  {
+   "start": 32,
+   "end": 33,
+   "label": "straight"
+  },
+  {
+   "start": 34,
+   "end": 36,
+   "label": "uturn_left"
+  },
+  {
+   "start": 37,
+   "end": 41,
+   "label": "straight"
+  },
+  {
+   "start": 42,
+   "end": 43,
+   "label": "left"
+  },
+  {
+   "start": 44,
+   "end": 45,
+   "label": "straight"
+  },
+  {
+   "start": 46,
+   "end": 46,
+   "label": "stairs_up"
+  },
+  {
+   "start": 47,
+   "end": 51,
+   "label": "straight"
+  },
+  {
+   "start": 52,
+   "end": 52,
+   "label": "arrive"
+  }
+ ]
+}

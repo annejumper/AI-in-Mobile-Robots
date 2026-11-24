@@ -1,0 +1,29 @@
+{
+ "id": "20261124_000429_Anne",
+ "person": "Anne",
+ "route": "Classroom to Nolop",
+ "kind": "test",
+ "started": "2026-11-24 00:04:29",
+ "duration_s": 116.5,
+ "strides": 51,
+ "steps": 102,
+ "dist_m": 43.9,
+ "stair_strides": 12,
+ "marks": 9,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "mode": "navigate",
+ "fixes": 9,
+ "policy": {
+  "trained": "2026-11-23 19:00",
+  "walks": [
+   "20261123_233624_Anne",
+   "20261123_233924_Anne",
+   "20261123_234340_Anne"
+  ],
+  "people": [
+   "Anne"
+  ],
+  "examples": 158
+ }
+}

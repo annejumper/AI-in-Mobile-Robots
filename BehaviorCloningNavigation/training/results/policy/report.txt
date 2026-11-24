@@ -1,0 +1,87 @@
+Labeled walks used: 8
+  20261123_233624_Anne  demo     Anne     Classroom to Nolop            53 strides  right=1  left=2  stairs_down=12  uturn_left=3  stairs_up=1  arrive=1
+  20261123_233924_Anne  demo     Anne     Classroom to Nolop            52 strides  right=1  left=3  stairs_down=11  uturn_left=3  stairs_up=1  arrive=1
+  20261123_234340_Anne  demo     Anne     Classroom to Nolop            50 strides  right=1  left=2  stairs_down=10  uturn_left=2  stairs_up=2  arrive=1
+  20261124_000429_Anne  dagger   Anne     Classroom to Nolop            51 strides  right=1  left=2  stairs_down=10  uturn_left=2  stairs_up=1  arrive=1
+  20261124_001044_Ani  demo     Ani      Classroom to Nolop            58 strides  right=1  left=3  stairs_down=11  uturn_left=4  stairs_up=1  arrive=1
+  20261124_001345_Ani  demo     Ani      Classroom to Nolop            55 strides  right=1  left=2  stairs_down=12  uturn_left=4  stairs_up=1  arrive=1
+  20261124_001600_Ani  demo     Ani      Classroom to Nolop            55 strides  right=1  left=3  stairs_down=11  uturn_left=3  stairs_up=1  arrive=1
+  20261124_003408_Ani  dagger   Ani      Classroom to Nolop            54 strides  right=1  left=4  stairs_down=12  uturn_left=1  stairs_up=1  arrive=1
+
+Leave-one-walk-out test (each walk replayed by a model that never saw it):
+  20261123_233624_Anne: stride accuracy 93%, false alarms 3
+      right       at stride   3: in time
+      left        at stride  21: in time
+      stairs_down at stride  22: in time
+      stairs_down at stride  32: in time
+      uturn_left  at stride  36: in time
+      left        at stride  45: in time
+      stairs_up   at stride  47: in time
+      arrive      at stride  53: in time
+  20261123_233924_Anne: stride accuracy 87%, false alarms 3
+      right       at stride   3: in time
+      left        at stride  19: in time
+      stairs_down at stride  20: in time
+      stairs_down at stride  28: in time
+      uturn_left  at stride  34: in time
+      left        at stride  42: in time
+      stairs_up   at stride  46: in time
+      arrive      at stride  52: in time
+  20261123_234340_Anne: stride accuracy 92%, false alarms 1
+      right       at stride   3: in time
+      left        at stride  20: in time
+      stairs_down at stride  22: in time
+      stairs_down at stride  29: in time
+      uturn_left  at stride  35: in time
+      left        at stride  43: in time
+      stairs_up   at stride  44: in time
+      arrive      at stride  50: in time
+  20261124_000429_Anne: stride accuracy 87%, false alarms 1
+      right       at stride   2: in time
+      left        at stride  20: in time
+      stairs_down at stride  21: in time
+      stairs_down at stride  26: in time
+      stairs_down at stride  31: in time
+      uturn_left  at stride  35: in time
+      left        at stride  44: missed
+      stairs_up   at stride  45: in time
+      arrive      at stride  51: in time
+  20261124_001044_Ani: stride accuracy 83%, false alarms 4
+      right       at stride   2: in time
+      left        at stride  22: in time
+      stairs_down at stride  24: in time
+      stairs_down at stride  34: in time
+      uturn_left  at stride  37: missed
+      left        at stride  48: in time
+      stairs_up   at stride  53: missed
+      arrive      at stride  58: in time
+  20261124_001345_Ani: stride accuracy 91%, false alarms 5
+      right       at stride   3: in time
+      left        at stride  22: in time
+      stairs_down at stride  24: in time
+      stairs_down at stride  32: in time
+      uturn_left  at stride  37: in time
+      left        at stride  47: in time
+      stairs_up   at stride  48: in time
+      arrive      at stride  55: in time
+  20261124_001600_Ani: stride accuracy 82%, false alarms 6
+      right       at stride   3: in time
+      left        at stride  20: in time
+      stairs_down at stride  24: in time
+      uturn_left  at stride  36: missed
+      left        at stride  46: in time
+      stairs_up   at stride  49: in time
+      arrive      at stride  55: in time
+  20261124_003408_Ani: stride accuracy 91%, false alarms 2
+      right       at stride   2: in time
+      left        at stride  21: in time
+      stairs_down at stride  24: in time
+      stairs_down at stride  34: in time
+      uturn_left  at stride  38: in time
+      left        at stride  46: in time
+      stairs_up   at stride  49: in time
+      arrive      at stride  54: in time
+
+  Overall: stride accuracy 88%; events in time 60/64, late 0, missed 4; false alarms 25
+
+Wrote campus-nav/python/policy.json (436 examples from 8 walks)

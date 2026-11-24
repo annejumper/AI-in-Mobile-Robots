@@ -1,0 +1,89 @@
+{
+ "route": "Classroom to Nolop",
+ "kind": "dagger",
+ "person": "Anne",
+ "use": true,
+ "n_strides": 51,
+ "segments": [
+  {
+   "start": 1,
+   "end": 1,
+   "label": "straight"
+  },
+  {
+   "start": 2,
+   "end": 2,
+   "label": "right"
+  },
+  {
+   "start": 3,
+   "end": 19,
+   "label": "straight"
+  },
+  {
+   "start": 20,
+   "end": 20,
+   "label": "left"
+  },
+  {
+   "start": 21,
+   "end": 24,
+   "label": "stairs_down"
+  },
+  {
+   "start": 25,
+   "end": 25,
+   "label": "straight"
+  },
+  {
+   "start": 26,
+   "end": 29,
+   "label": "stairs_down"
+  },
+  {
+   "start": 30,
+   "end": 30,
+   "label": "straight"
+  },
+  {
+   "start": 31,
+   "end": 32,
+   "label": "stairs_down"
+  },
+  {
+   "start": 33,
+   "end": 34,
+   "label": "straight"
+  },
+  {
+   "start": 35,
+   "end": 36,
+   "label": "uturn_left"
+  },
+  {
+   "start": 37,
+   "end": 43,
+   "label": "straight"
+  },
+  {
+   "start": 44,
+   "end": 44,
+   "label": "left"
+  },
+  {
+   "start": 45,
+   "end": 45,
+   "label": "stairs_up"
+  },
+  {
+   "start": 46,
+   "end": 50,
+   "label": "straight"
+  },
+  {
+   "start": 51,
+   "end": 51,
+   "label": "arrive"
+  }
+ ]
+}

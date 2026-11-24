@@ -1,0 +1,454 @@
+<!doctype html>
+<!-- Phone page for the campus navigator, served by the WebUI brick in
+     python/main.py at http://<board IP>:7000.
+     Record:   live steps, distance, heading and stairs; record demonstration
+               walks (Start, walk the route, Stop) with optional marks.
+     Navigate: the trained navigator tells you what to do after every stride
+               (big arrow, spoken aloud). When it's wrong, tap what it should
+               have said: those corrections are DAgger data for retraining.
+     Walks:    the recorded walks, with the option to delete a bad one.
+     Everything is drawn locally so the page needs no internet. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Campus Nav</title>
+  <style>
+    :root {
+      --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff;
+      --line: #dcdcd6; --accent: #1f6feb; --accent-fg: #ffffff; --bad: #c62828;
+      --rec: #d93025; --ok: #1a7f4b; --warn: #a35f00;
+      --l-straight: #6b6b66; --l-left: #2a78d6; --l-right: #eb6834;
+      --l-stairs_up: #1baf7a; --l-stairs_down: #8e5bd0; --l-arrive: #1a7f4b;
+      --l-uturn_left: #2a78d6; --l-uturn_right: #eb6834;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161616; --fg: #ededea; --muted: #9a9a94; --card: #222221;
+        --line: #3a3a38; --accent: #4b8ef5; --accent-fg: #0b0b0b; --bad: #ef5350;
+        --rec: #ff5a4e; --ok: #3cc47c; --warn: #e0a040;
+        --l-straight: #9a9a94; --l-left: #3987e5; --l-right: #d95926;
+        --l-stairs_up: #199e70; --l-stairs_down: #9d6ee0; --l-arrive: #3cc47c;
+        --l-uturn_left: #3987e5; --l-uturn_right: #d95926;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; padding: 16px; background: var(--bg); color: var(--fg);
+      font: 16px/1.4 -apple-system, system-ui, sans-serif; max-width: 480px;
+    }
+    h1 { font-size: 20px; margin: 0; }
+    h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+    #status { font-size: 13px; min-height: 18px; margin-top: 4px; color: var(--muted); }
+    #status .bad { color: var(--bad); font-weight: 600; }
+    #status .warn { color: var(--warn); font-weight: 600; }
+    #status .ok { color: var(--ok); }
+
+    .seg { display: flex; background: var(--card); border: 1px solid var(--line);
+           border-radius: 12px; padding: 3px; gap: 3px; margin-top: 14px; }
+    .seg button { flex: 1; border: 0; border-radius: 9px; padding: 10px 8px; font-size: 15px;
+                  font-weight: 600; background: transparent; color: var(--fg); cursor: pointer;
+                  -webkit-tap-highlight-color: transparent; }
+    .seg button.on { background: var(--accent); color: var(--accent-fg); }
+    .seg button:disabled { opacity: 0.4; }
+
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+            padding: 16px; margin-top: 14px; }
+    .row { display: flex; gap: 12px; align-items: center; }
+    .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; flex: 1; }
+    .stat .v { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .stat .k { font-size: 12px; color: var(--muted); }
+    #dial { width: 120px; height: 120px; flex: none; }
+    #dial circle { fill: none; stroke: var(--line); stroke-width: 3; }
+    #dial .tick { stroke: var(--muted); stroke-width: 2; }
+    #dial .arrow { fill: var(--accent); transition: transform 0.25s linear; transform-origin: 60px 60px; }
+    #dial text { fill: var(--fg); font-size: 15px; font-weight: 700; text-anchor: middle; }
+
+    button.small { border: 1px solid var(--line); background: var(--card); color: var(--fg);
+                   border-radius: 10px; padding: 7px 12px; font-size: 14px; cursor: pointer; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips button { border: 1px solid var(--line); background: var(--card); color: var(--fg);
+                    border-radius: 999px; padding: 7px 14px; font-size: 15px; cursor: pointer; }
+    .chips button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    input[type=text] { width: 100%; padding: 10px 12px; font-size: 16px; border-radius: 10px;
+                       border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    label.lbl { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+    label.check { display: flex; gap: 8px; align-items: center; font-size: 15px; margin-top: 12px; }
+
+    #go { width: 100%; margin-top: 14px; padding: 18px; font-size: 20px; font-weight: 700;
+          border: 0; border-radius: 14px; background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+    #go.stop { background: var(--rec); color: #fff; }
+    #go:disabled { opacity: 0.5; }
+    .recdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--rec);
+              margin-right: 6px; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.2; } }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+    .grid3 button { padding: 16px 4px; font-size: 16px; font-weight: 600; border-radius: 12px;
+                    border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer;
+                    -webkit-tap-highlight-color: transparent; }
+    .grid3 button:active { background: var(--accent); color: var(--accent-fg); }
+    .log { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+    a.discard { display: block; text-align: center; margin-top: 12px; color: var(--bad); font-size: 14px; }
+
+    #instr { text-align: center; padding: 22px 16px; }
+    #instr svg { width: 170px; height: 170px; display: block; margin: 0 auto; }
+    #instr svg .shape { fill: var(--c, var(--l-straight)); transition: fill 0.2s; }
+    #instr svg .shape path { fill: none; stroke: var(--c, var(--l-straight)); stroke-width: 14; }
+    #instrText { font-size: 34px; font-weight: 800; margin-top: 8px; color: var(--c, var(--fg)); }
+    #instrSub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+    .walk { border-top: 1px solid var(--line); padding: 10px 0; display: flex; gap: 10px; align-items: center; }
+    .walk:first-child { border-top: 0; }
+    .walk .main { flex: 1; min-width: 0; }
+    .walk .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .walk .s { font-size: 13px; color: var(--muted); }
+    .tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line);
+           color: var(--muted); margin-left: 4px; vertical-align: 1px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .saved { margin-top: 10px; padding: 12px; border-radius: 12px; text-align: center; font-weight: 700;
+             color: var(--ok); border: 1px solid var(--ok); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Campus Nav</h1>
+  <div id="status">Connecting…</div>
+
+  <div class="seg" id="tabs">
+    <button data-tab="record" class="on">Record</button>
+    <button data-tab="navigate">Navigate</button>
+    <button data-tab="walks">Walks</button>
+  </div>
+
+  <!-- ===== Record ===== -->
+  <section id="tab-record">
+    <div class="card">
+      <div class="row">
+        <svg id="dial" viewBox="0 0 120 120" aria-label="heading">
+          <circle cx="60" cy="60" r="54"></circle>
+          <line class="tick" x1="60" y1="4" x2="60" y2="14"></line>
+          <g class="arrow" id="arrow"><polygon points="60,16 72,62 60,54 48,62"></polygon></g>
+          <text x="60" y="98" id="hdg">0°</text>
+        </svg>
+        <div class="stats">
+          <div class="stat"><div class="v" id="steps">0</div><div class="k">steps</div></div>
+          <div class="stat"><div class="v" id="dist">0</div><div class="k">metres</div></div>
+          <div class="stat"><div class="v" id="stairs">0</div><div class="k">stair strides</div></div>
+          <div class="stat"><div class="v" id="cad">–</div><div class="k">steps/min</div></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px; justify-content:space-between">
+        <span class="muted">Up on the dial = where you faced at Start.</span>
+        <button class="small" id="zero">Zero</button>
+      </div>
+    </div>
+
+    <div class="card" id="recinfo">
+      <div><span class="recdot"></span><b id="rectitle">Recording</b></div>
+      <div class="muted" id="recstats"></div>
+      <div class="grid3" id="marks"></div>
+      <div class="log" id="marklog"></div>
+      <a href="#" class="discard" data-discard>Discard this walk</a>
+    </div>
+  </section>
+
+  <!-- ===== Navigate ===== -->
+  <section id="tab-navigate" class="hidden">
+    <div class="card" id="nopolicy">
+      <b>No navigator on the board yet.</b>
+      <p class="muted">Label your demonstration walks, then run
+        <code>python3 training/train_policy.py --deploy</code> with the board on USB.</p>
+    </div>
+    <div class="card" id="instr">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g class="shape" id="shape-straight"><polygon points="50,8 82,44 62,44 62,92 38,92 38,44 18,44"></polygon></g>
+        <g class="shape hidden" id="shape-left"><polygon points="8,50 44,18 44,38 92,38 92,62 44,62 44,82"></polygon></g>
+        <g class="shape hidden" id="shape-right"><polygon points="92,50 56,18 56,38 8,38 8,62 56,62 56,82"></polygon></g>
+        <g class="shape hidden" id="shape-stairs_up"><polygon points="8,92 8,74 28,74 28,56 48,56 48,38 68,38 68,20 92,20 92,92"></polygon></g>
+        <g class="shape hidden" id="shape-stairs_down"><polygon points="92,92 92,74 72,74 72,56 52,56 52,38 32,38 32,20 8,20 8,92"></polygon></g>
+        <!-- U-turn: up the right side, over the top, down the left, arrowhead pointing down -->
+        <g class="shape hidden" id="shape-uturn_left"><path d="M68,92 V42 A18,18 0 0 0 32,42 V58"></path>
+          <polygon points="14,56 50,56 32,82"></polygon></g>
+        <g class="shape hidden" id="shape-uturn_right" transform="translate(100 0) scale(-1 1)"><path d="M68,92 V42 A18,18 0 0 0 32,42 V58"></path>
+          <polygon points="14,56 50,56 32,82"></polygon></g>
+        <g class="shape hidden" id="shape-arrive"><polygon points="10,52 22,40 40,58 78,18 90,30 40,82"></polygon></g>
+      </svg>
+      <div id="instrText">Ready</div>
+      <div id="instrSub">Press Start at your starting spot.</div>
+    </div>
+
+    <div class="card" id="navsetup">
+      <label class="lbl" style="margin-top:0">This walk</label>
+      <div class="chips" id="navkinds">
+        <button data-kind="dagger" class="on">With corrections (DAgger)</button>
+        <button data-kind="test">Test (not trained on)</button>
+      </div>
+      <label class="check"><input type="checkbox" id="speak" checked> Speak instructions</label>
+      <div class="muted" id="policyinfo" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" id="navinfo">
+      <div><span class="recdot"></span><b id="navtitle">Navigating</b></div>
+      <div class="muted" id="navstats"></div>
+      <h2 style="margin-top:12px">Wrong? Tap what it should say:</h2>
+      <div class="grid3" id="fixes"></div>
+      <div class="log" id="fixlog"></div>
+      <a href="#" class="discard" data-discard>Discard this walk</a>
+    </div>
+  </section>
+
+  <!-- ===== Who / route, start / stop (Record and Navigate) ===== -->
+  <div id="common">
+    <div class="card" id="setup">
+      <h2>Who's wearing it</h2>
+      <div class="chips" id="people"></div>
+      <label class="lbl" for="route">Route</label>
+      <input type="text" id="route" placeholder="e.g. Halligan → Nolop" maxlength="60">
+    </div>
+    <button id="go">Start</button>
+    <div id="saved" class="saved hidden">✓ Walk saved. Safe to unplug.</div>
+    <p class="muted" id="hint"></p>
+  </div>
+
+  <!-- ===== Walks ===== -->
+  <section id="tab-walks" class="hidden">
+    <div class="card">
+      <h2 id="walkcount">Walks</h2>
+      <div id="walks"><span class="muted">None yet.</span></div>
+    </div>
+    <p class="muted">Copy them to the laptop with <code>python3 training/label_walks.py</code> (board on USB).</p>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const MARK_LABELS = { left: "⬅ Left", right: "Right ➡", straight: "⬆ Straight",
+                          stairs: "Stairs", door: "Door", mark: "Mark" };
+    const SAY = { straight: "Go straight", left: "Turn left", right: "Turn right",
+                  uturn_left: "Turn around to the left", uturn_right: "Turn around to the right",
+                  stairs_up: "Stairs up", stairs_down: "Stairs down", arrive: "You've arrived" };
+    const SHORT = { straight: "⬆ Straight", left: "⬅ Left", right: "Right ➡",
+                    uturn_left: "↶ U-turn L", uturn_right: "U-turn R ↷",
+                    stairs_up: "Stairs up", stairs_down: "Stairs down", arrive: "✓ Arrived" };
+    const HINTS = {
+      record: "Stand still for 2 s before you press Start so the gyro can calibrate. After Stop, wait for " +
+              "“Walk saved” before unplugging. Marks are optional: turns and stairs are found afterwards.",
+      navigate: "Start at the same spot, facing the same way, as in your demonstrations, and stand still 2 s " +
+                "first. Follow the arrow. If it's wrong, tap what it should say, and keep walking the right way.",
+    };
+    let status = null, tab = "record", navKind = "dagger", routeEdited = false, failures = 0;
+    let lastSaid = null;
+
+    async function post(path) {
+      try {
+        const r = await (await fetch(path, { method: "POST" })).json();
+        if (r && r.error) alert(r.error);
+        return r;
+      } catch (e) { return null; }
+    }
+
+    function speak(text) {
+      if (!$("speak").checked || !window.speechSynthesis) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      speechSynthesis.speak(u);
+    }
+
+    function showTab(t) {
+      tab = t;
+      document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === t));
+      ["record", "navigate", "walks"].forEach((n) => $(`tab-${n}`).classList.toggle("hidden", n !== t));
+      $("common").classList.toggle("hidden", t === "walks");
+      $("hint").textContent = HINTS[t] || "";
+      if (status) render(status);
+    }
+    document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+    document.querySelectorAll("#navkinds button").forEach((b) => b.onclick = () => {
+      navKind = b.dataset.kind;
+      document.querySelectorAll("#navkinds button").forEach((x) => x.classList.toggle("on", x === b));
+    });
+    $("route").oninput = () => { routeEdited = true; };
+    $("zero").onclick = () => post("/api/reset");
+    document.querySelectorAll("[data-discard]").forEach((a) => a.onclick = (e) => {
+      e.preventDefault();
+      if (confirm("Discard this walk? It won't be saved.")) post("/api/walk/discard");
+    });
+    $("go").onclick = async () => {
+      if (!status) return;
+      const st = status.rec.state;
+      if (st === "idle") {
+        const route = $("route").value.trim();
+        if (!route && !confirm("No route name. Start anyway?")) return;
+        if (!status.gyro_calibrated &&
+            !confirm("The gyro hasn't calibrated yet (stand still for 2 s). Start anyway?")) return;
+        const kind = tab === "navigate" ? navKind : "demo";
+        if (tab === "navigate") speak("Starting navigation");   // a tap unlocks speech on iPhone
+        lastSaid = null;
+        await post(`/api/walk/start?route=${encodeURIComponent(route)}&kind=${kind}`);
+      } else if (st === "recording") {
+        await post("/api/walk/stop");
+      }
+      refresh();
+    };
+
+    function buildButtons(box, kinds, labels, prefix) {
+      if (box.childElementCount) return;
+      kinds.forEach((k) => {
+        const b = document.createElement("button");
+        const key = k.replace(/^fix_/, "");
+        b.textContent = labels[key] || key;
+        b.onclick = async () => {
+          if (navigator.vibrate) navigator.vibrate(40);
+          await post(`/api/mark/${k}`);
+          refresh();
+        };
+        box.appendChild(b);
+      });
+    }
+
+    function renderPeople(s) {
+      const box = $("people");
+      box.innerHTML = "";
+      s.people.forEach((p) => {
+        const b = document.createElement("button");
+        b.textContent = p;
+        b.className = p === s.person ? "on" : "";
+        b.onclick = () => post(`/api/person/${encodeURIComponent(p)}`).then(refresh);
+        box.appendChild(b);
+      });
+      const add = document.createElement("button");
+      add.textContent = "+ Add";
+      add.onclick = () => {
+        const name = prompt("Name of the person wearing it:");
+        if (name && name.trim()) post(`/api/person/${encodeURIComponent(name.trim())}`).then(refresh);
+      };
+      box.appendChild(add);
+    }
+
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+    function renderWalks(s) {
+      const list = s.walks.slice().reverse();
+      const demos = s.walks.filter((w) => w.kind === "demo").length;
+      const dag = s.walks.filter((w) => w.kind === "dagger").length;
+      $("walkcount").textContent = `Walks (${demos} demonstrations, ${dag} DAgger, ${s.walks.length} in all)`;
+      const box = $("walks");
+      if (!list.length) { box.innerHTML = '<span class="muted">None yet.</span>'; return; }
+      box.innerHTML = list.map((w) => `
+        <div class="walk">
+          <div class="main">
+            <div class="t">${esc(w.route || "(no route)")}<span class="tag">${esc(w.kind)}</span></div>
+            <div class="s">${esc(w.person)} · ${esc(w.started)} · ${mmss(w.duration_s)} ·
+              ${w.steps} steps · ${w.dist_m} m · ${w.stair_strides} stair · ${w.marks} taps
+              ${w.fixes ? ` · ${w.fixes} corrections` : ""}${w.recovered ? " · recovered" : ""}
+              ${w.gyro_calibrated ? "" : " · gyro uncalibrated"}${w.dropped ? ` · ${w.dropped} dropped` : ""}</div>
+          </div>
+          <button class="small" data-del="${esc(w.id)}">Delete</button>
+        </div>`).join("");
+      box.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+        if (confirm("Delete this walk? (It's moved to data/trash/ on the board.)"))
+          post(`/api/walk/delete/${b.dataset.del}`).then(refresh);
+      });
+    }
+
+    function renderInstruction(said, conf, navigating) {
+      const label = said || "straight";
+      document.querySelectorAll("#instr .shape").forEach((g) => g.classList.toggle("hidden", g.id !== `shape-${label}`));
+      $("instr").style.setProperty("--c", navigating ? `var(--l-${label})` : "var(--l-straight)");
+      $("instrText").textContent = navigating ? SAY[label] : "Ready";
+      $("instrSub").textContent = navigating ? `${Math.round(conf * 100)}% sure` : "Press Start at your starting spot.";
+      if (navigating && said && said !== lastSaid) {
+        speak(SAY[said]);
+        if (navigator.vibrate) navigator.vibrate(said === "straight" ? 60 : [120, 80, 120]);
+      }
+      lastSaid = navigating ? said : null;
+    }
+
+    let lastWalksKey = "", lastPeopleKey = "";
+    function render(s) {
+      const parts = [];
+      if (!s.sensor_ok) parts.push('<span class="bad">Sensor not answering: check the wiring</span>');
+      else if (!s.gyro_calibrated) parts.push('<span class="warn">Stand still 2 s to calibrate the gyro</span>');
+      else parts.push(`<span class="ok">Sensor ok · gyro calibrated</span>${s.still ? " · standing still" : ""}`);
+      if (s.dropped) parts.push(`${s.dropped} samples dropped`);
+      $("status").innerHTML = parts.join(" · ");
+
+      const r = s.rec, active = r.state !== "idle", navigating = active && r.mode === "navigate";
+      // A walk in progress pins its tab (Record for demonstrations, Navigate otherwise)
+      if (active && tab !== "walks") {
+        const want = navigating ? "navigate" : "record";
+        if (tab !== want) { showTab(want); return; }
+      }
+      document.querySelectorAll("#tabs button").forEach((b) =>
+        b.disabled = active && b.dataset.tab !== "walks" && b.dataset.tab !== (navigating ? "navigate" : "record"));
+
+      // Record tab
+      $("steps").textContent = active ? 2 * r.strides : s.live.steps;
+      $("dist").textContent = active ? r.dist_m : s.live.dist_m;
+      $("stairs").textContent = active ? r.stairs : s.live.stairs;
+      $("cad").textContent = s.live.cadence_spm || "–";
+      const h = s.live.heading_deg;
+      $("arrow").style.transform = `rotate(${-h}deg)`;
+      const hn = ((h % 360) + 540) % 360 - 180;
+      $("hdg").textContent = `${Math.abs(Math.round(hn))}° ${hn > 3 ? "L" : hn < -3 ? "R" : ""}`;
+      $("zero").disabled = active;
+      $("recinfo").classList.toggle("hidden", !(active && !navigating));
+      if (active && !navigating) {
+        buildButtons($("marks"), s.mark_kinds, MARK_LABELS);
+        $("rectitle").textContent = `Recording demonstration: ${r.route || "(no route)"}`;
+        $("recstats").textContent = `${mmss(r.elapsed_s)} · ${s.person}`;
+        $("marklog").textContent = r.marks.length
+          ? "Taps: " + r.marks.map((m) => `${m.kind} @ ${mmss(m.t_s)}`).join(", ") : "No taps yet.";
+      }
+
+      // Navigate tab
+      $("nopolicy").classList.toggle("hidden", !!s.policy);
+      $("policyinfo").textContent = s.policy
+        ? `Navigator trained ${s.policy.trained} on ${s.policy.walks.length} walk(s)` +
+          (s.policy.people && s.policy.people.length ? ` (${s.policy.people.join(", ")})` : "") : "";
+      $("navsetup").classList.toggle("hidden", active);
+      $("navinfo").classList.toggle("hidden", !navigating);
+      renderInstruction(r.said, r.confidence, navigating);
+      if (navigating) {
+        buildButtons($("fixes"), s.fix_kinds, SHORT);
+        $("navtitle").textContent = `${r.kind === "test" ? "Test" : "DAgger"} walk: ${r.route || "(no route)"}`;
+        $("navstats").textContent = `${mmss(r.elapsed_s)} · ${2 * r.strides} steps · ${r.dist_m} m · ${s.person}`;
+        const fixes = r.marks.filter((m) => m.kind.startsWith("fix_"));
+        $("fixlog").textContent = fixes.length
+          ? `${r.fixes} correction(s): ` + fixes.map((m) => `${m.kind.slice(4)} @ ${mmss(m.t_s)}`).join(", ")
+          : "No corrections yet.";
+      }
+
+      // Who / route / start-stop
+      $("setup").classList.toggle("hidden", active);
+      const go = $("go");
+      go.classList.toggle("stop", r.state === "recording");
+      go.disabled = r.state === "settling" || (!active && tab === "navigate" && !s.policy);
+      go.textContent = r.state === "settling" ? "Saving… don't unplug"
+        : r.state === "recording" ? "Stop & save"
+        : tab === "navigate" ? "Start navigating" : "Start demonstration";
+      $("saved").classList.toggle("hidden", active || !s.last_saved);
+      if (!routeEdited && !active && document.activeElement !== $("route")) $("route").value = s.route || "";
+
+      const pk = JSON.stringify([s.people, s.person]);
+      if (pk !== lastPeopleKey) { lastPeopleKey = pk; renderPeople(s); }
+      const wk = JSON.stringify(s.walks.map((w) => w.id));
+      if (wk !== lastWalksKey) { lastWalksKey = wk; renderWalks(s); }
+    }
+
+    async function refresh() {
+      try {
+        status = await (await fetch("/api/status")).json();
+        failures = 0;
+        render(status);
+      } catch (e) {
+        if (++failures > 2) $("status").innerHTML = '<span class="bad">Can\'t reach the board</span>';
+      }
+    }
+    showTab("record");
+    refresh();
+    setInterval(refresh, 500);
+  </script>
+</body>
+</html>

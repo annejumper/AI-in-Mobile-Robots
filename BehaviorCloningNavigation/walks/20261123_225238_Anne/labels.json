@@ -1,0 +1,84 @@
+{
+ "route": "Nolop Lap",
+ "kind": "practice",
+ "person": "Anne",
+ "use": false,
+ "n_strides": 36,
+ "segments": [
+  {
+   "start": 1,
+   "end": 1,
+   "label": "stairs_up"
+  },
+  {
+   "start": 2,
+   "end": 6,
+   "label": "straight"
+  },
+  {
+   "start": 7,
+   "end": 7,
+   "label": "left"
+  },
+  {
+   "start": 8,
+   "end": 8,
+   "label": "right"
+  },
+  {
+   "start": 9,
+   "end": 14,
+   "label": "straight"
+  },
+  {
+   "start": 15,
+   "end": 16,
+   "label": "right"
+  },
+  {
+   "start": 17,
+   "end": 17,
+   "label": "straight"
+  },
+  {
+   "start": 18,
+   "end": 18,
+   "label": "right"
+  },
+  {
+   "start": 19,
+   "end": 25,
+   "label": "straight"
+  },
+  {
+   "start": 26,
+   "end": 26,
+   "label": "right"
+  },
+  {
+   "start": 27,
+   "end": 27,
+   "label": "straight"
+  },
+  {
+   "start": 28,
+   "end": 28,
+   "label": "left"
+  },
+  {
+   "start": 29,
+   "end": 33,
+   "label": "straight"
+  },
+  {
+   "start": 34,
+   "end": 35,
+   "label": "stairs_down"
+  },
+  {
+   "start": 36,
+   "end": 36,
+   "label": "arrive"
+  }
+ ]
+}

@@ -1,0 +1,16 @@
+{
+ "id": "20261123_225238_Anne",
+ "person": "Anne",
+ "route": "",
+ "kind": "demo",
+ "started": "2026-11-23 22:52:38",
+ "duration_s": 80.7,
+ "strides": 36,
+ "steps": 72,
+ "dist_m": 31.9,
+ "stair_strides": 3,
+ "marks": 11,
+ "dropped": 0,
+ "gyro_calibrated": true,
+ "recovered": true
+}
